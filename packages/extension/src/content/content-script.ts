@@ -82,13 +82,29 @@ interface GetPortResponse {
 /**
  * Wrap `chrome.runtime.sendMessage` in a Promise. The MV3 API returns
  * via a callback when the listener sets `return true`, which the
- * background worker does for `get_port`.
+ * background worker does for both `get_port` and `invalidate_port`.
  */
 function requestPort(): Promise<GetPortResponse> {
+  return sendPortMessage({ type: "get_port" });
+}
+
+/**
+ * Tell the background worker the cached port is stale so it rescans
+ * the range — used after a transport-failed /suggestion fetch so a
+ * daemon restart onto a different port recovers on the next attempt
+ * (review-loop f8).
+ */
+function requestInvalidatePort(): Promise<GetPortResponse> {
+  return sendPortMessage({ type: "invalidate_port" });
+}
+
+function sendPortMessage(message: {
+  type: "get_port" | "invalidate_port";
+}): Promise<GetPortResponse> {
   return new Promise((resolvePromise) => {
     try {
       chrome.runtime.sendMessage(
-        { type: "get_port" },
+        message,
         (response: GetPortResponse | undefined) => {
           if (chrome.runtime.lastError !== undefined) {
             resolvePromise({
@@ -151,9 +167,9 @@ async function runOnce(): Promise<void> {
   currentRoute = route;
   const { signal } = route.controller;
 
-  const { port } = await requestPort();
+  const firstPort = (await requestPort()).port;
   if (signal.aborted) return;
-  if (port === null) {
+  if (firstPort === null) {
     // The spec documents the info-level log for 200/404; a missing port
     // is a transient error and gets a warn — CP04's "zero errors"
     // constraint only forbids console.error. A warn here is useful
@@ -162,70 +178,100 @@ async function runOnce(): Promise<void> {
     return;
   }
 
+  // Fetch with stale-port recovery: on transport failure, assume the
+  // cached port is stale (daemon restarted onto a different port),
+  // ask the worker to rescan, and retry ONCE against the fresh port.
+  let port = firstPort;
+  let res: Response | null = await tryFetchSuggestion(port, tweetId, signal);
+  if (signal.aborted) return;
+  if (res === null) {
+    const fresh = (await requestInvalidatePort()).port;
+    if (signal.aborted) return;
+    if (fresh === null) {
+      console.warn(`${LOG_PREFIX} /suggestion fetch failed for ${tweetId}`);
+      return;
+    }
+    port = fresh;
+    res = await tryFetchSuggestion(port, tweetId, signal);
+    if (signal.aborted) return;
+    if (res === null) {
+      console.warn(
+        `${LOG_PREFIX} /suggestion fetch failed for ${tweetId} even after port invalidate`,
+      );
+      return;
+    }
+  }
+
+  if (res.status === 200) {
+    console.info(`${LOG_PREFIX} suggestion available for ${tweetId}`);
+    // CP07: spin up a fresh controller. The controller owns the
+    // WidgetStateMachine + Dock/Card mount lifecycle so SPA navigation
+    // between tweets starts with a clean state machine.
+    try {
+      const payload: unknown = await res.json();
+      if (signal.aborted) return;
+      disposeActiveController();
+      const candidate = extractCandidateView(payload);
+      activeController = createWidgetController({
+        tweetId,
+        suggestionPayload: payload,
+        candidate,
+        port,
+      });
+      await activeController.start();
+      if (signal.aborted) {
+        // Route changed while mounting — drop the freshly-built widget.
+        disposeActiveController();
+      }
+    } catch (err) {
+      // JSON parse failure or unavailable DOM — warn, don't error.
+      // The detection log above already fired, so the evaluator's
+      // happy-path assertion still passes.
+      console.warn(
+        `${LOG_PREFIX} dock mount failed for ${tweetId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  } else if (res.status === 404) {
+    console.info(`${LOG_PREFIX} no suggestion for ${tweetId}`);
+    // No suggestion → make sure no stale widget remains from a prior
+    // route in the same tab.
+    disposeActiveController();
+    unmountDock();
+    unmountCard();
+  } else {
+    console.warn(
+      `${LOG_PREFIX} /suggestion returned ${res.status} for ${tweetId}`,
+    );
+  }
+}
+
+/**
+ * Single-shot fetch against `/suggestion` that returns `null` on any
+ * transport failure instead of throwing. Caller (`runOnce`) decides
+ * whether to invalidate the port cache and retry. Route-change aborts
+ * also surface as `null` — caller inspects `signal.aborted` to
+ * distinguish.
+ */
+async function tryFetchSuggestion(
+  port: number,
+  tweetId: string,
+  signal: AbortSignal,
+): Promise<Response | null> {
   try {
-    const res = await fetch(
+    return await fetch(
       `http://localhost:${port}/suggestion?tweet_id=${encodeURIComponent(tweetId)}`,
       { method: "GET", signal },
     );
-    if (signal.aborted) return;
-
-    if (res.status === 200) {
-      console.info(`${LOG_PREFIX} suggestion available for ${tweetId}`);
-      // CP07: spin up a fresh controller. The controller owns the
-      // WidgetStateMachine + Dock/Card mount lifecycle so SPA
-      // navigation between tweets starts with a clean state machine.
-      try {
-        const payload: unknown = await res.json();
-        if (signal.aborted) return;
-        disposeActiveController();
-        const candidate = extractCandidateView(payload);
-        activeController = createWidgetController({
-          tweetId,
-          suggestionPayload: payload,
-          candidate,
-          port,
-        });
-        await activeController.start();
-        if (signal.aborted) {
-          // Route changed while mounting — drop the freshly-built widget.
-          disposeActiveController();
-        }
-      } catch (err) {
-        // JSON parse failure or unavailable DOM — warn, don't error.
-        // The detection log above already fired, so the evaluator's
-        // happy-path assertion still passes.
-        console.warn(
-          `${LOG_PREFIX} dock mount failed for ${tweetId}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
-    } else if (res.status === 404) {
-      console.info(`${LOG_PREFIX} no suggestion for ${tweetId}`);
-      // No suggestion → make sure no stale widget remains from a prior
-      // route in the same tab.
-      disposeActiveController();
-      unmountDock();
-      unmountCard();
-    } else {
-      console.warn(
-        `${LOG_PREFIX} /suggestion returned ${res.status} for ${tweetId}`,
-      );
-    }
   } catch (err) {
-    // Route-change aborts land here — swallow silently.
-    if (signal.aborted) return;
-    // Transport failure. Re-validating the port on failure is the
-    // responsibility of CP03's fetchWithPortRetry, which is not routed
-    // here intentionally — the content script talks directly to
-    // http://localhost:<port> to avoid cross-origin chrome.runtime
-    // round-trips on every fetch. For CP04, a warn is sufficient; a
-    // future checkpoint can wire in the retry helper if needed.
-    console.warn(
-      `${LOG_PREFIX} /suggestion fetch failed for ${tweetId}: ${
+    if (signal.aborted) return null;
+    console.info(
+      `${LOG_PREFIX} /suggestion fetch failed on port ${port} for ${tweetId}: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
+    return null;
   }
 }
 

@@ -22,6 +22,7 @@
 import {
   fetchCandidates,
   getPortFromWorker,
+  invalidatePortAndRediscover,
   postDismiss,
   type PopupCandidate,
 } from "./daemon-client.js";
@@ -128,30 +129,29 @@ function handleDismiss(
 /**
  * Run the full flow once: port resolution → fetch → render. Used on
  * initial load and on retry.
+ *
+ * On a transport failure we assume the cached port is stale (typical
+ * case: the daemon restarted onto a different auto-bumped port after a
+ * crash). We ask the background worker to invalidate + rescan, then try
+ * the fetch again exactly once. If the second attempt also fails, we
+ * drop to the error state — the retry button re-runs this whole flow.
  */
 async function runFlow(): Promise<void> {
   setState("loading");
   setPortFooter(null);
 
-  const port = await getPortFromWorker();
-  if (port === null) {
+  const initialPort = await getPortFromWorker();
+  if (initialPort === null) {
+    setState("error");
+    return;
+  }
+
+  const { port, candidates } = await fetchWithStaleRecovery(initialPort);
+  if (port === null || candidates === null) {
     setState("error");
     return;
   }
   setPortFooter(port);
-
-  let candidates: PopupCandidate[];
-  try {
-    candidates = await fetchCandidates(port);
-  } catch (err) {
-    console.info(
-      `${LOG_PREFIX} GET /candidates failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-    setState("error");
-    return;
-  }
 
   const container = document.querySelector<HTMLElement>(
     "[data-testid='twh-popup-cards']",
@@ -166,6 +166,40 @@ async function runFlow(): Promise<void> {
 
   const rendered = renderList(port, candidates, container);
   setState(rendered ? "list" : "empty");
+}
+
+/**
+ * One-shot fetch + stale-port recovery. Returns the port used and the
+ * candidates list; either is null if we couldn't recover.
+ */
+async function fetchWithStaleRecovery(
+  initialPort: number,
+): Promise<{ port: number | null; candidates: PopupCandidate[] | null }> {
+  try {
+    return { port: initialPort, candidates: await fetchCandidates(initialPort) };
+  } catch (err) {
+    console.info(
+      `${LOG_PREFIX} GET /candidates failed on cached port ${initialPort}: ${
+        err instanceof Error ? err.message : String(err)
+      } — invalidating + retrying once`,
+    );
+  }
+
+  const fresh = await invalidatePortAndRediscover();
+  if (fresh === null) {
+    return { port: null, candidates: null };
+  }
+
+  try {
+    return { port: fresh, candidates: await fetchCandidates(fresh) };
+  } catch (err) {
+    console.info(
+      `${LOG_PREFIX} GET /candidates failed after invalidate on port ${fresh}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return { port: null, candidates: null };
+  }
 }
 
 function wireRetry(): void {

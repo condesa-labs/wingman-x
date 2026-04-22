@@ -53,6 +53,32 @@ export const PORT_BUDGET_MS = 500;
 export async function getPortFromWorker(
   budgetMs: number = PORT_BUDGET_MS,
 ): Promise<number | null> {
+  return sendPortMessage({ type: "get_port" }, budgetMs);
+}
+
+/**
+ * Tell the background worker the cached port is stale — it rescans the
+ * range, updates the cache, and returns whatever port currently answers
+ * (or `null` if the scan is exhausted). Callers use this after a
+ * transport-failed fetch so a daemon restart onto a different port is
+ * recovered within a single retry (review-loop f8).
+ */
+export async function invalidatePortAndRediscover(
+  budgetMs: number = PORT_BUDGET_MS,
+): Promise<number | null> {
+  return sendPortMessage({ type: "invalidate_port" }, budgetMs);
+}
+
+/**
+ * Shared implementation: send a port-related message, resolve to the
+ * response's `.port` (or null) within the budget. Extracted because the
+ * `get_port` and `invalidate_port` message handlers share the same
+ * response shape (`{port, error?}`).
+ */
+function sendPortMessage(
+  message: { type: "get_port" | "invalidate_port" },
+  budgetMs: number,
+): Promise<number | null> {
   return new Promise((resolvePromise) => {
     let settled = false;
     const timer = setTimeout(() => {
@@ -62,7 +88,7 @@ export async function getPortFromWorker(
     }, budgetMs);
 
     chrome.runtime.sendMessage(
-      { type: "get_port" },
+      message,
       (response: GetPortResponse | undefined) => {
         if (settled) return;
         settled = true;
