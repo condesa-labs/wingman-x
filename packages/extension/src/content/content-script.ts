@@ -203,13 +203,71 @@ async function runOnce(): Promise<void> {
   }
 
   if (res.status === 200) {
+    // Parse + shape-check BEFORE the "suggestion available" log so we
+    // don't commit to mounting a widget for a response that actually
+    // came from a co-located non-daemon service squatting on our
+    // stale cached port (review-loop f12). On shape mismatch we treat
+    // it like a transport failure: invalidate_port + retry once.
+    let payload: unknown;
+    try {
+      payload = await res.json();
+    } catch {
+      payload = null;
+    }
+    if (signal.aborted) return;
+    if (!isDaemonSuggestionPayload(payload, tweetId)) {
+      // Stale-cache signal. Reuse the same invalidate+retry path as
+      // transport failure (inline so we preserve the existing flow).
+      const fresh = (await requestInvalidatePort()).port;
+      if (signal.aborted) return;
+      if (fresh === null) {
+        console.warn(
+          `${LOG_PREFIX} /suggestion body shape mismatch for ${tweetId}`,
+        );
+        return;
+      }
+      const retryRes = await tryFetchSuggestion(fresh, tweetId, signal);
+      if (signal.aborted) return;
+      if (retryRes === null) {
+        console.warn(
+          `${LOG_PREFIX} /suggestion fetch failed for ${tweetId} after shape-mismatch invalidate`,
+        );
+        return;
+      }
+      if (retryRes.status !== 200) {
+        if (retryRes.status === 404) {
+          console.info(`${LOG_PREFIX} no suggestion for ${tweetId}`);
+          disposeActiveController();
+          unmountDock();
+          unmountCard();
+        } else {
+          console.warn(
+            `${LOG_PREFIX} /suggestion returned ${retryRes.status} for ${tweetId} after invalidate`,
+          );
+        }
+        return;
+      }
+      try {
+        payload = await retryRes.json();
+      } catch {
+        payload = null;
+      }
+      if (signal.aborted) return;
+      if (!isDaemonSuggestionPayload(payload, tweetId)) {
+        console.warn(
+          `${LOG_PREFIX} /suggestion body shape mismatch even after invalidate for ${tweetId}`,
+        );
+        return;
+      }
+      // Fresh port is the one we retried against — update local ref.
+      port = fresh;
+    }
+
     console.info(`${LOG_PREFIX} suggestion available for ${tweetId}`);
     // CP07: spin up a fresh controller. The controller owns the
     // WidgetStateMachine + Dock/Card mount lifecycle so SPA navigation
     // between tweets starts with a clean state machine.
     try {
-      const payload: unknown = await res.json();
-      if (signal.aborted) return;
       disposeActiveController();
       const candidate = extractCandidateView(payload);
       activeController = createWidgetController({
@@ -224,9 +282,9 @@ async function runOnce(): Promise<void> {
         disposeActiveController();
       }
     } catch (err) {
-      // JSON parse failure or unavailable DOM — warn, don't error.
-      // The detection log above already fired, so the evaluator's
-      // happy-path assertion still passes.
+      // Mount failure — warn, don't error. The detection log above
+      // already fired, so the evaluator's happy-path assertion still
+      // passes.
       console.warn(
         `${LOG_PREFIX} dock mount failed for ${tweetId}: ${
           err instanceof Error ? err.message : String(err)
@@ -273,6 +331,27 @@ async function tryFetchSuggestion(
     );
     return null;
   }
+}
+
+/**
+ * Shape guard for `/suggestion` response — matches the daemon contract
+ * at `packages/daemon/src/server.ts#app.get("/suggestion", ...)` which
+ * returns a full Candidate whose `tweet_id` matches the query. A
+ * mismatched tweet_id triggers retry because a conforming daemon MUST
+ * echo the requested id (review-loop f12).
+ */
+function isDaemonSuggestionPayload(
+  payload: unknown,
+  expectedTweetId: string,
+): boolean {
+  if (payload === null || typeof payload !== "object") return false;
+  const r = payload as Record<string, unknown>;
+  return (
+    r.tweet_id === expectedTweetId &&
+    typeof r.tweet_url === "string" &&
+    typeof r.suggested_reply === "string" &&
+    typeof r.match_reason === "string"
+  );
 }
 
 /**

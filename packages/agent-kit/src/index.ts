@@ -12,6 +12,10 @@ export {
 export {
   CandidateInputSchema,
   CandidateSchema,
+  CandidatesListResponseSchema,
+  SuggestionResponseSchema,
   type CandidateInput,
   type Candidate,
+  type CandidatesListResponse,
+  type SuggestionResponse,
 } from "./candidate.js";

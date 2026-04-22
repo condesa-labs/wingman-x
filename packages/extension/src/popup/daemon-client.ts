@@ -107,9 +107,16 @@ function sendPortMessage(
 }
 
 /**
- * `GET /candidates`. Throws on any transport error so the caller can
- * show the error state. HTTP error responses are also treated as
- * transport failures — the popup only has two states (list / error).
+ * `GET /candidates`. Throws on any transport error OR daemon-shape
+ * mismatch so the caller (runFlow) can treat both as a stale-cache
+ * signal, invalidate the port, and retry once (review-loop f12).
+ *
+ * Shape mismatch matters because the cached port might belong to a
+ * co-located local HTTP service (daemon restarted onto a different
+ * auto-bumped port; old port now owned by something else). Without
+ * this check, `body.candidates ?? []` would silently collapse any
+ * 200 JSON into an empty list and pin the popup to the wrong
+ * service indefinitely.
  */
 export async function fetchCandidates(
   port: number,
@@ -121,8 +128,38 @@ export async function fetchCandidates(
   if (!res.ok) {
     throw new Error(`GET /candidates returned ${res.status}`);
   }
-  const body = (await res.json()) as PopupCandidatesResponse;
-  return body.candidates ?? [];
+  const body = (await res.json()) as unknown;
+  if (!isCandidatesListResponse(body)) {
+    throw new Error(
+      `GET /candidates response shape mismatch — cached port ${port} likely stale`,
+    );
+  }
+  return body.candidates;
+}
+
+/**
+ * Shape guard for `GET /candidates` — matches the daemon contract at
+ * `packages/daemon/src/server.ts` `app.get("/candidates", ...)`.
+ */
+function isCandidatesListResponse(
+  body: unknown,
+): body is PopupCandidatesResponse {
+  if (body === null || typeof body !== "object") return false;
+  const list = (body as { candidates?: unknown }).candidates;
+  if (!Array.isArray(list)) return false;
+  for (const c of list) {
+    if (c === null || typeof c !== "object") return false;
+    const r = c as Record<string, unknown>;
+    if (
+      typeof r.tweet_id !== "string" ||
+      typeof r.tweet_url !== "string" ||
+      typeof r.suggested_reply !== "string" ||
+      typeof r.status !== "string"
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

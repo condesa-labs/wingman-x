@@ -84,3 +84,21 @@ export const CandidateSchema = CandidateInputSchema.extend({
   status_updated_at: z.string().datetime(),
 });
 export type Candidate = z.infer<typeof CandidateSchema>;
+
+/**
+ * Response validators — used by popup / content-script to confirm that
+ * a 2xx on the cached port actually came from the daemon (not a
+ * co-located local HTTP service that happens to be listening on the
+ * stale port — review-loop f12). On shape mismatch the caller should
+ * treat the response as a stale-cache signal and `invalidate_port` +
+ * retry once.
+ */
+export const CandidatesListResponseSchema = z.object({
+  candidates: z.array(CandidateSchema),
+});
+export type CandidatesListResponse = z.infer<
+  typeof CandidatesListResponseSchema
+>;
+
+export const SuggestionResponseSchema = CandidateSchema;
+export type SuggestionResponse = z.infer<typeof SuggestionResponseSchema>;
