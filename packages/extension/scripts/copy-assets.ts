@@ -39,7 +39,12 @@ const STATIC_ASSETS: ReadonlyArray<{ from: string; to: string }> = [
 ];
 
 // Flatten popup JS paths after tsc emits them (tsc keeps the src
-// directory structure; we want popup.js at the dist root).
+// directory structure; we want popup.js at the dist root). CP08
+// introduces three ESM sibling modules (candidate-card, daemon-client,
+// truncate) — the popup.html loads popup.js as a module, so relative
+// imports must resolve to files that live next to popup.js. We flatten
+// ALL .js files under dist/popup/ rather than keeping an explicit list,
+// so future popup modules don't require a copy-assets patch.
 const FLATTEN_MAPPINGS: ReadonlyArray<{ from: string; to: string }> = [
   { from: "popup/popup.js", to: "popup.js" },
   { from: "popup/popup.js.map", to: "popup.js.map" },
@@ -168,6 +173,10 @@ function main(): void {
   }
 
   // 1) Flatten popup/* JS files to dist root, then remove the empty dir.
+  //    - `FLATTEN_MAPPINGS` covers the entrypoint (popup.js + .map).
+  //    - Every other .js / .js.map under dist/popup/ is copied verbatim
+  //      so ESM relative imports (`./truncate.js`, `./daemon-client.js`,
+  //      `./candidate-card.js`) resolve next to the entrypoint.
   for (const m of FLATTEN_MAPPINGS) {
     const fromAbs = join(distDir, m.from);
     const toAbs = join(distDir, m.to);
@@ -175,9 +184,14 @@ function main(): void {
       copyFileSync(fromAbs, toAbs);
     }
   }
-  // Remove the now-redundant popup/ directory from dist (if tsc emitted one).
   const distPopupDir = join(distDir, "popup");
   if (existsSync(distPopupDir)) {
+    for (const entry of readdirSync(distPopupDir)) {
+      // The entrypoint is already flattened above; skip to avoid redundant copy.
+      if (entry === "popup.js" || entry === "popup.js.map") continue;
+      if (!entry.endsWith(".js") && !entry.endsWith(".js.map")) continue;
+      copyFileSync(join(distPopupDir, entry), join(distDir, entry));
+    }
     rmSync(distPopupDir, { recursive: true, force: true });
   }
 

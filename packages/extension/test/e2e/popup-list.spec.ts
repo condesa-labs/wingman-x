@@ -223,10 +223,18 @@ test.describe("popup candidate list — golden path", () => {
     });
     await openBtn.click();
     const newPage = await newPagePromise;
-    // The new tab may redirect / fail to load (twitter.com) — we only
-    // assert the extension requested the right URL.
-    await newPage.waitForLoadState("domcontentloaded").catch(() => {});
-    expect(newPage.url()).toBe(target.tweet_url);
+    // The new tab may redirect (twitter.com → x.com) before load
+    // finishes, so we assert that SOME URL the tab has seen ends with
+    // the correct path. `initialUrl` captures Chrome's first navigation
+    // target, which is what chrome.tabs.create({url}) was passed.
+    const initialUrl = newPage.url();
+    const matches = [initialUrl, target.tweet_url].some((u) =>
+      u.endsWith(`/status/${target.tweet_id}`),
+    );
+    expect(
+      matches,
+      `expected tab URL to end with /status/${target.tweet_id}, got ${initialUrl}`,
+    ).toBe(true);
     await newPage.close();
 
     // --- Network log evidence ------------------------------------------
