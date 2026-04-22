@@ -1,0 +1,7 @@
+{
+  "name": "@twitter-helper/agent-kit",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent-kit HTTP client + docs (implemented in CP09).",
+  "scripts": {}
+}
