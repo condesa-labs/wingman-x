@@ -163,6 +163,28 @@ describe("4xx error path", () => {
     expect(caught).toBeInstanceOf(DaemonHttpError);
     expect((caught as DaemonHttpError).body).toBe("plain text error");
   });
+
+  it("falls back to text body when Content-Type claims JSON but payload is malformed", async () => {
+    // Exercises the JSON-parse try/catch fallback in readBody — a server
+    // that advertises JSON but actually emits broken JSON (a real bug
+    // we've hit in other daemons) must still produce a helpful error.
+    const fetchMock = vi.fn(async () =>
+      new Response("{not-json", {
+        status: 502,
+        statusText: "Bad Gateway",
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const client = createDaemonClient(PORT, { fetch: fetchMock as unknown as typeof fetch });
+    let caught: unknown;
+    try {
+      await client.getCandidates();
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(DaemonHttpError);
+    expect((caught as DaemonHttpError).body).toBe("{not-json");
+  });
 });
 
 describe("network failure path", () => {
@@ -182,6 +204,26 @@ describe("network failure path", () => {
     expect(caught).toBeInstanceOf(DaemonNetworkError);
     expect((caught as DaemonNetworkError).name).toBe("DaemonNetworkError");
     expect((caught as DaemonNetworkError).cause).toBeInstanceOf(TypeError);
+    expect((caught as DaemonNetworkError).message).toContain("fetch failed");
+  });
+
+  it("wraps non-Error transport failures into DaemonNetworkError too", async () => {
+    // Some exotic fetch polyfills throw non-Error values. The wrapper
+    // must still produce a typed DaemonNetworkError without crashing on
+    // `cause.message` access.
+    const fetchMock = vi.fn(async () => {
+      throw "socket hangup";
+    });
+    const client = createDaemonClient(PORT, { fetch: fetchMock as unknown as typeof fetch });
+    let caught: unknown;
+    try {
+      await client.getCandidates();
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(DaemonNetworkError);
+    expect((caught as DaemonNetworkError).message).toBe("daemon network error");
+    expect((caught as DaemonNetworkError).cause).toBe("socket hangup");
   });
 });
 
