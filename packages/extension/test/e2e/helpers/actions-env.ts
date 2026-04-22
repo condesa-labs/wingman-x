@@ -85,8 +85,14 @@ export async function seedCandidate(
  * `/:handle/status/:id`. Returns a 204 (No Content) for favicon etc. so
  * the console stays clean — the E2E's zero-error assertion would
  * otherwise fail on "Failed to load resource: favicon".
+ *
+ * Exported so the CP10 full-pipeline spec can reuse the same fixture
+ * server without re-implementing 15 lines of node:http boilerplate. The
+ * CP10 env is orchestrated inline in the spec (agent-kit client for
+ * seed, no CP06-specific defaults) so sharing this small primitive
+ * keeps the fixture-serving logic in exactly one place.
  */
-async function startFixtureServer(): Promise<{
+export async function startFixtureServer(): Promise<{
   base: string;
   server: http.Server;
 }> {
