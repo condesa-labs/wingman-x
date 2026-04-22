@@ -219,7 +219,12 @@ test.describe("popup candidate list — golden path", () => {
       .locator('[data-testid="twh-popup-open"]');
 
     const newPagePromise = ext.context.waitForEvent("page", {
-      timeout: 5_000,
+      // Bumped from 5s to 15s: when popup-list runs late in the full
+      // E2E suite (14 specs share one persistent context + one
+      // daemon), cumulative network/context overhead can push the new-
+      // tab open past the old 5s budget, flaking ~2-in-3 full-suite
+      // runs. CP10 review-loop fix.
+      timeout: 15_000,
     });
     await openBtn.click();
     const newPage = await newPagePromise;
