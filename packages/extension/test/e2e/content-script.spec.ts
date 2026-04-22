@@ -60,8 +60,12 @@ async function startFixtureServer(): Promise<{ base: string; server: http.Server
       res.end(fixtureHtml);
       return;
     }
-    res.writeHead(404, { "content-type": "text/plain" });
-    res.end("not found");
+    // Return 204 (No Content) for browser-auto-requests like /favicon.ico
+    // so Chromium doesn't emit a "Failed to load resource" console error
+    // that would fail the E2E's zero-error assertion. A 404 would be
+    // equally valid semantically, but 204 keeps the console clean.
+    res.writeHead(204);
+    res.end();
   });
   await new Promise<void>((resolveListen) => {
     server.listen(0, "127.0.0.1", () => resolveListen());
