@@ -18,6 +18,11 @@
         1. <article> container for the tweet body (CP04 + CP05 anchor).
         2. Contenteditable reply composer with the Twitter-current
            `data-testid="tweetTextarea_0"` selector, used by CP06 fill.
+        3. A disabled "Tweet" submit button wired to an `input` listener
+           on the contenteditable — a React-state stand-in the CP06
+           acceptance criteria require so we can verify that the fill
+           strategy dispatches a real input event (not just a value
+           mutation React would miss).
       Nothing else is rendered because CP04's sole goal is the
       page → daemon detection pipe; no widget UI in this checkpoint.
     -->
@@ -30,5 +35,32 @@
       data-testid="tweetTextarea_0"
       aria-label="Tweet text"
     ></div>
+    <button
+      type="button"
+      id="tweet-button"
+      data-testid="tweetButtonInline"
+      disabled
+    >
+      Tweet
+    </button>
+    <script>
+      // React stand-in: enable the Tweet button whenever the composer
+      // contains text. CP06's fill strategy MUST dispatch a real `input`
+      // event — writing to `.textContent` directly would not trigger
+      // this listener, mirroring how React's internal state stays stale
+      // on direct DOM mutation.
+      (function () {
+        var composer = document.querySelector(
+          '[data-testid="tweetTextarea_0"]'
+        );
+        var tweetBtn = document.getElementById("tweet-button");
+        if (composer && tweetBtn) {
+          composer.addEventListener("input", function () {
+            var hasText = (composer.textContent || "").trim().length > 0;
+            tweetBtn.disabled = !hasText;
+          });
+        }
+      })();
+    </script>
   </body>
 </html>
