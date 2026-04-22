@@ -27,6 +27,8 @@ import {
   type LocalStorageLike,
   type WidgetPosition,
 } from "./position-store.js";
+import { handleAction, type DockAction } from "./actions.js";
+import { clearToast } from "./toast.js";
 
 /** Root id — stable for E2E selectors and for idempotent re-mount. */
 export const DOCK_ID = "twh-dock";
@@ -47,6 +49,13 @@ export interface DockOptions {
    * `dataset.suggestion` so CP06 can read it without re-fetching.
    */
   suggestionPayload: unknown;
+  /**
+   * Resolved daemon port for POST /candidates/:id/action. `null`/
+   * omitted disables the network side of each action — the UI effect
+   * (toast, unmount, composer fill) still runs so offline/dev-mode is
+   * usable without the daemon.
+   */
+  port?: number | null;
   /** Storage override for tests. */
   storage?: LocalStorageLike;
 }
@@ -105,6 +114,27 @@ export async function mountDock(
     });
   }
 
+  // CP06: wire click handlers for each action icon. The handler uses a
+  // snapshot of the tweet_id / suggested_reply / port captured at mount
+  // time so each click is self-contained — no extra fetch needed.
+  const suggestedReply = extractSuggestedReply(options.suggestionPayload);
+  const port = options.port ?? null;
+  const actionButtons = root.querySelectorAll<HTMLButtonElement>(
+    "button.twh-action",
+  );
+  for (const btn of actionButtons) {
+    const raw = btn.dataset["action"];
+    if (raw === undefined) continue;
+    const action = raw as DockAction;
+    btn.addEventListener("click", () => {
+      void handleAction(action, {
+        tweetId: options.tweetId,
+        suggestedReply,
+        port,
+      });
+    });
+  }
+
   mountedTweetId = options.tweetId;
   return root;
 }
@@ -117,6 +147,28 @@ export function unmountDock(): void {
   }
   mountedTweetId = null;
   document.getElementById(DOCK_ID)?.remove();
+  // Drop any lingering toast so dismissing the Dock during a regen toast
+  // doesn't leave a "regen requested" note hovering on an empty page.
+  clearToast();
+}
+
+/**
+ * Best-effort extractor for the `suggested_reply` string from the
+ * /suggestion payload. Falls back to an empty string if the payload
+ * shape is unexpected — `handleAction("fill", ...)` will still run and
+ * return `false` from fillReplyComposer, which is the documented
+ * no-op contract for a missing suggestion.
+ */
+function extractSuggestedReply(payload: unknown): string {
+  if (
+    payload !== null &&
+    typeof payload === "object" &&
+    "suggested_reply" in payload &&
+    typeof (payload as { suggested_reply: unknown }).suggested_reply === "string"
+  ) {
+    return (payload as { suggested_reply: string }).suggested_reply;
+  }
+  return "";
 }
 
 /**
@@ -203,9 +255,9 @@ function buildDockElement(options: DockOptions): HTMLElement {
     btn.setAttribute("aria-label", a.label);
     btn.title = a.label;
     btn.textContent = a.glyph;
-    // NOTE: intentionally NO click handler in CP05. Clicks must be
-    // visible interactions but must not fire network or state changes.
-    // CP06 will attach click handlers to dispatch /candidates/:id/action.
+    // Click listener is attached in `mountDock()` (not here) because the
+    // handler closes over the resolved tweet_id + port + suggested_reply,
+    // which are mount-time state rather than element-construction state.
     root.appendChild(btn);
   }
 

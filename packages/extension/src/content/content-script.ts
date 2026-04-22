@@ -110,7 +110,7 @@ async function runOnce(): Promise<void> {
       // when wiring /candidates/:id/action click handlers.
       try {
         const payload: unknown = await res.json();
-        await mountDock({ tweetId, suggestionPayload: payload });
+        await mountDock({ tweetId, suggestionPayload: payload, port });
       } catch (err) {
         // JSON parse failure or unavailable DOM — warn, don't error.
         // The detection log above already fired, so the evaluator's

@@ -196,17 +196,20 @@ test("Dock renders, icons inert, position persists across reload", async () => {
     fullPage: true,
   });
 
-  // --- Step 4: Clicks on non-handle icons must NOT hit the network -------
-  for (const testId of expectedActions) {
-    await page.locator(`[data-testid="${testId}"]`).click();
-  }
-  // Tiny drain loop in case the production code fires fetch()
-  // asynchronously. Playwright's route handler is synchronous so any hit
-  // would already be counted, but we give it a microtask grace window.
-  await page.waitForTimeout(100);
+  // --- Step 4: Clicks on icons -------------------------------------------
+  // CP05 originally asserted all action icons were inert (no network, no
+  // side-effects). CP06 supersedes that constraint by wiring the real
+  // action handlers (fill / dismiss / regen / stubs), so we stop clicking
+  // them here: clicking ✍️ would now fire POST action=filled, clicking 👎
+  // would unmount the Dock out from under the drag step, etc. CP06's own
+  // spec files exercise the action click matrix; CP05's residual
+  // responsibility is drag-persist, which does not need an icon click.
+  // `actionCallCount` is kept in the route counter so a regression to CP05
+  // (mis-wiring state from mount itself) would still surface.
+  void expectedActions;
   expect(
     actionCallCount,
-    `expected zero /candidates/** calls from action clicks — got ${actionCallCount}`,
+    `expected zero spontaneous /candidates/** calls on mount — got ${actionCallCount}`,
   ).toBe(0);
 
   // --- Step 5: Drag the Dock via the ⋮⋮ handle ---------------------------
