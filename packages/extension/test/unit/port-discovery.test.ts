@@ -144,6 +144,49 @@ describe("discoverPort", () => {
     expect(port).toBeNull();
   });
 
+  it("two concurrent forceFresh calls share one scan (review-loop f11)", async () => {
+    // Popup and content-script both hit transport failure on the same
+    // daemon restart and both fire `invalidate_port`. With the f10 fix
+    // they'd both bypass coalescing and run two parallel fresh scans —
+    // the earlier-started scan could return a stale null result while
+    // the later one finds the daemon. Expected behavior: both share
+    // one fresh scan and see identical results.
+    const storage = makeStorage();
+    const DAEMON_PORT = 53830;
+    const probeCountPerPort = new Map<number, number>();
+
+    const slowFetch = ((input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const m = /localhost:(\d+)/.exec(url);
+      const port = m ? Number(m[1]) : NaN;
+      probeCountPerPort.set(port, (probeCountPerPort.get(port) ?? 0) + 1);
+      return new Promise<Response>((resolveFetch) => {
+        setTimeout(() => {
+          if (port === DAEMON_PORT) {
+            resolveFetch(jsonResponse(DAEMON_HEALTH_BODY));
+          } else {
+            resolveFetch(new Response(null, { status: 500 }));
+          }
+        }, 5);
+      });
+    }) as typeof fetch;
+
+    const [p1, p2] = await Promise.all([
+      discoverPort({ storage, fetchImpl: slowFetch, forceFresh: true }),
+      discoverPort({ storage, fetchImpl: slowFetch, forceFresh: true }),
+    ]);
+
+    expect(p1).toBe(DAEMON_PORT);
+    expect(p2).toBe(DAEMON_PORT);
+
+    // Each port probed exactly once — proves the two forceFresh calls
+    // shared a single scan. Without coalescing we'd see 2 probes per
+    // port up through DAEMON_PORT.
+    for (const [port, count] of probeCountPerPort) {
+      expect(count, `port ${port} probed ${count} times`).toBe(1);
+    }
+  });
+
   it("generation tracking: stale warm-up scan does not wipe forceFresh result (review-loop f10)", async () => {
     // Peer's scenario: a warm-up scan starts while the daemon is still
     // down. Before it finishes its full range, the daemon comes up on

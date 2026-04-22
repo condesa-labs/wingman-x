@@ -87,6 +87,7 @@ export function defaultStorage(): SessionStorageLike {
  * `forceFresh: true`, which starts a fresh generation.
  */
 let inflightScan: Promise<number | null> | null = null;
+let inflightIsFresh = false;
 let latestGeneration = 0;
 
 /**
@@ -96,27 +97,41 @@ let latestGeneration = 0;
  *
  * Returns `null` when every port in the range is silent.
  *
- * Concurrent callers coalesce into a single scan unless `forceFresh`
- * is set — see the module-scope comment above.
+ * Coalescing matrix (caller's `forceFresh` × inflight scan's fresh flag):
+ *   ordinary  + ordinary inflight → coalesce (reuses scan result).
+ *   ordinary  + fresh inflight    → coalesce (fresh is a stricter scan,
+ *                                   ordinary accepts its result).
+ *   fresh     + ordinary inflight → supersede; new fresh scan starts.
+ *   fresh     + fresh inflight    → coalesce (peer-confirmed: two
+ *                                   concurrent invalidations should
+ *                                   share one scan — review-loop f11).
  */
 export async function discoverPort(
   options: DiscoveryOptions = {},
 ): Promise<number | null> {
-  if (options.forceFresh !== true && inflightScan !== null) {
+  const wantsFresh = options.forceFresh === true;
+
+  // Short-circuit: share the in-flight scan when it's good enough for
+  // this caller. "Good enough" means:
+  //   - caller is ordinary → any in-flight scan is acceptable, OR
+  //   - caller is fresh AND in-flight is also fresh → shared fresh scan.
+  if (inflightScan !== null && (!wantsFresh || inflightIsFresh)) {
     return inflightScan;
   }
 
   latestGeneration += 1;
   const myGeneration = latestGeneration;
   const promise = doDiscoverPort(options, myGeneration).finally(() => {
-    // Only clear `inflightScan` if we are still the active scan. A
-    // newer scan that replaced us already updated `inflightScan` and
+    // Only clear module state if we are still the active scan. A newer
+    // scan that replaced us has already overwritten inflightScan and
     // will clear it on its own completion.
     if (inflightScan === promise) {
       inflightScan = null;
+      inflightIsFresh = false;
     }
   });
   inflightScan = promise;
+  inflightIsFresh = wantsFresh;
   return promise;
 }
 
