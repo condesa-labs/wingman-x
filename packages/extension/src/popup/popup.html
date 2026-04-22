@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Twitter Helper</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="root" data-state="loading">
+      <!--
+        Three stacked states. Which one is visible is controlled by the
+        `data-state` attribute on `<main>` via CSS attribute selectors.
+        Popup JS flips this between "loading" → "empty" (CP03 scope).
+        Error state is shown when port discovery fails entirely.
+      -->
+      <section class="state state--loading" data-testid="loading-skeleton">
+        <div class="skeleton skeleton--block"></div>
+        <div class="skeleton skeleton--line"></div>
+        <div class="skeleton skeleton--line skeleton--short"></div>
+      </section>
+
+      <section class="state state--empty">
+        <p class="empty__message">No candidates yet — run your agent.</p>
+        <footer class="footer" data-testid="port-status"></footer>
+      </section>
+
+      <section class="state state--error">
+        <p class="error__message">Daemon not running. Start the companion daemon and reopen.</p>
+      </section>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

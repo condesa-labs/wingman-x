@@ -10,6 +10,7 @@ import childProcess from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
+import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import {
   test as base,
@@ -29,10 +30,13 @@ const daemonPkg = join(repoRoot, "packages", "daemon");
  * We use a disposable state dir so parallel runs don't clobber each
  * other and the user's ~/.twitter-helper is not touched.
  */
+/** stdio: ["ignore","pipe","pipe"] → stdin is null, stdout/stderr are Readable. */
+type DaemonChild = childProcess.ChildProcessByStdio<null, Readable, Readable>;
+
 export interface DaemonHandle {
   port: number;
   stateDir: string;
-  child: childProcess.ChildProcessWithoutNullStreams;
+  child: DaemonChild;
   stop: () => Promise<void>;
 }
 
@@ -67,9 +71,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
   };
 }
 
-async function waitForListen(
-  child: childProcess.ChildProcessWithoutNullStreams,
-): Promise<number> {
+async function waitForListen(child: DaemonChild): Promise<number> {
   return new Promise((resolvePort, reject) => {
     const timeout = setTimeout(() => {
       if (!child.killed) child.kill("SIGKILL");
