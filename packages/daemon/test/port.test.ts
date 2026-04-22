@@ -29,6 +29,19 @@ function closeAll(servers: Server[]): Promise<void> {
   ).then(() => undefined);
 }
 
+/**
+ * Use a test-only port range that does NOT overlap with the production
+ * default (53827–53836). Vitest runs test files in parallel by default,
+ * so two files both trying to occupy the production range would
+ * race-conflict. The DEFAULT_PORT_RANGE constant test asserts the
+ * production value; every bind-exercise test uses TEST_RANGE.
+ *
+ * Base 59800 chosen empirically — above Twitter Helper's range, below
+ * the ephemeral port range (typically 49152–65535 but the upper end is
+ * usually free for listen on macOS and Linux at test time).
+ */
+const TEST_RANGE = [59800, 59801, 59802, 59803, 59804] as const;
+
 describe("port auto-bump", () => {
   let occupied: Server[] = [];
   let app: Awaited<ReturnType<typeof buildServer>> | undefined;
@@ -54,40 +67,40 @@ describe("port auto-bump", () => {
     ]);
   });
 
-  it("picks the first free port when the default (53827) is occupied", async () => {
-    occupied.push(await occupy(53827));
+  it("picks the first free port when the first is occupied", async () => {
+    occupied.push(await occupy(TEST_RANGE[0]));
     app = await buildServer();
-    const chosen = await chooseAndBindPort(app);
-    expect(chosen).toBe(53828);
-    expect(app.server.address()).toMatchObject({ port: 53828 });
+    const chosen = await chooseAndBindPort(app, { range: [...TEST_RANGE] });
+    expect(chosen).toBe(TEST_RANGE[1]);
+    expect(app.server.address()).toMatchObject({ port: TEST_RANGE[1] });
   });
 
   it("skips over multiple busy ports and binds the next free one", async () => {
-    for (const p of [53827, 53828, 53829, 53830, 53831]) {
+    occupied.push(await occupy(TEST_RANGE[0]));
+    occupied.push(await occupy(TEST_RANGE[1]));
+    occupied.push(await occupy(TEST_RANGE[2]));
+    app = await buildServer();
+    const chosen = await chooseAndBindPort(app, { range: [...TEST_RANGE] });
+    expect(chosen).toBe(TEST_RANGE[3]);
+  });
+
+  it("throws NoAvailablePortError when every port in the range is busy", async () => {
+    for (const p of TEST_RANGE) {
       occupied.push(await occupy(p));
     }
     app = await buildServer();
-    const chosen = await chooseAndBindPort(app);
-    expect(chosen).toBe(53832);
+    await expect(
+      chooseAndBindPort(app, { range: [...TEST_RANGE] }),
+    ).rejects.toBeInstanceOf(NoAvailablePortError);
   });
 
-  it("throws NoAvailablePortError when all 10 ports are busy", async () => {
-    for (let p = 53827; p <= 53836; p++) {
-      occupied.push(await occupy(p));
-    }
-    app = await buildServer();
-    await expect(chooseAndBindPort(app)).rejects.toBeInstanceOf(
-      NoAvailablePortError,
-    );
-  });
-
-  it("surfaces a grep-able error message when none available", async () => {
-    for (let p = 53827; p <= 53836; p++) {
+  it("surfaces the grep-able error message when none available", async () => {
+    for (const p of TEST_RANGE) {
       occupied.push(await occupy(p));
     }
     app = await buildServer();
     try {
-      await chooseAndBindPort(app);
+      await chooseAndBindPort(app, { range: [...TEST_RANGE] });
       throw new Error("expected throw");
     } catch (err) {
       expect((err as Error).message).toBe(
@@ -98,23 +111,61 @@ describe("port auto-bump", () => {
 
   it("persists the chosen port to state.json", async () => {
     app = await buildServer();
-    const chosen = await chooseAndBindPort(app);
-    expect(chosen).toBe(53827);
+    const chosen = await chooseAndBindPort(app, { range: [...TEST_RANGE] });
+    expect(chosen).toBe(TEST_RANGE[0]);
 
     const raw = readFileSync(ctx.statePath, "utf8");
     const parsed = JSON.parse(raw);
-    expect(parsed.port).toBe(53827);
+    expect(parsed.port).toBe(TEST_RANGE[0]);
   });
 
   it("logs a grep-able listen line via the provided logger", async () => {
     app = await buildServer();
     const lines: string[] = [];
     const chosen = await chooseAndBindPort(app, {
+      range: [...TEST_RANGE],
       log: (line) => lines.push(line),
     });
-    expect(chosen).toBe(53827);
-    expect(lines.some((l) => l.includes("[daemon] listening on port 53827"))).toBe(
-      true,
-    );
+    expect(chosen).toBe(TEST_RANGE[0]);
+    expect(
+      lines.some((l) =>
+        l.includes(`[daemon] listening on port ${TEST_RANGE[0]}`),
+      ),
+    ).toBe(true);
+  });
+
+  it("re-throws a non-EADDRINUSE error from listen instead of swallowing", async () => {
+    app = await buildServer();
+    // Replace app.listen with a failing stub that throws an error
+    // whose `code` isn't EADDRINUSE. This exercises the
+    // `lastUnexpectedError` branch.
+    const boom = Object.assign(new Error("permission denied"), {
+      code: "EACCES",
+    });
+    app.listen = async () => {
+      throw boom;
+    };
+
+    await expect(
+      chooseAndBindPort(app, { range: [TEST_RANGE[0]] }),
+    ).rejects.toBe(boom);
+  });
+
+  it("tolerates persistence failures silently after a successful bind", async () => {
+    // Make the state dir a path that can't be written to (a file
+    // where a directory is expected). persistPort must swallow the
+    // error and the bind should still succeed.
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(ctx.statePath, "{}", "utf8");
+    // Now force saveState to fail by replacing the state path with a
+    // directory — mkdirSync inside saveState will then fail because
+    // the path already exists as a file that needs to be renamed in.
+    // Simpler: just unset TWITTER_HELPER_STATE_DIR to a path that
+    // mkdirSync would refuse. Use /dev/null/forbidden.
+    process.env.TWITTER_HELPER_STATE_DIR = "/dev/null/forbidden";
+
+    app = await buildServer();
+    const chosen = await chooseAndBindPort(app, { range: [...TEST_RANGE] });
+    expect(chosen).toBe(TEST_RANGE[0]);
   });
 });
