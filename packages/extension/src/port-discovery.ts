@@ -55,13 +55,42 @@ export function defaultStorage(): SessionStorageLike {
 }
 
 /**
+ * Single-flight coalescing for concurrent discoverPort() calls.
+ *
+ * Without this, popup + content-script both hitting `invalidate_port`
+ * simultaneously would run two parallel scans whose completion order is
+ * nondeterministic — a scan that exhausts AFTER another has just cached
+ * a fresh port would wipe that fresh entry on its tail
+ * `storage.remove(STORAGE_KEY)` call. With this, overlapping callers
+ * share the in-flight promise and see identical results.
+ *
+ * Tests do not hit this codepath concurrently (each test awaits its
+ * discoverPort call before the next runs), so the module-scope state
+ * resets between tests naturally.
+ */
+let inflightScan: Promise<number | null> | null = null;
+
+/**
  * Probe `range` in order and return the first port whose `/health`
- * endpoint replies 2xx. Caches the result under `daemon_port`.
+ * endpoint replies 2xx with a daemon-shaped body. Caches the result
+ * under `daemon_port`.
  *
  * Returns `null` when every port in the range is silent.
+ *
+ * Concurrent callers coalesce into a single scan — see `inflightScan`.
  */
 export async function discoverPort(
   options: DiscoveryOptions = {},
+): Promise<number | null> {
+  if (inflightScan !== null) return inflightScan;
+  inflightScan = doDiscoverPort(options).finally(() => {
+    inflightScan = null;
+  });
+  return inflightScan;
+}
+
+async function doDiscoverPort(
+  options: DiscoveryOptions,
 ): Promise<number | null> {
   const range = options.range ?? PORT_RANGE;
   const fetchImpl = options.fetchImpl ?? fetch;

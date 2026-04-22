@@ -143,6 +143,49 @@ describe("discoverPort", () => {
     const port = await discoverPort({ storage, fetchImpl: textOk });
     expect(port).toBeNull();
   });
+
+  it("coalesces concurrent calls into a single scan (review-loop f9)", async () => {
+    // Without single-flight coalescing, two concurrent invalidations
+    // (popup+content-script both hitting transport failure on the same
+    // daemon restart) would run parallel scans whose tail cache-writes
+    // could interleave — a scan that exhausts after another has cached
+    // a fresh port would wipe that fresh entry.
+    const storage = makeStorage();
+    const probeCallsPerPort = new Map<number, number>();
+    const slowFetch = ((input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const m = /localhost:(\d+)/.exec(url);
+      const port = m ? Number(m[1]) : NaN;
+      probeCallsPerPort.set(port, (probeCallsPerPort.get(port) ?? 0) + 1);
+      return new Promise<Response>((resolveFetch) => {
+        // Arbitrary short delay so the two promises overlap. Without it
+        // the tiny synchronous Promise chain might serialize and hide
+        // the race-free guarantee we're asserting.
+        setTimeout(() => {
+          if (port === 53830) {
+            resolveFetch(jsonResponse(DAEMON_HEALTH_BODY));
+          } else {
+            resolveFetch(new Response(null, { status: 500 }));
+          }
+        }, 5);
+      });
+    }) as typeof fetch;
+
+    const [p1, p2] = await Promise.all([
+      discoverPort({ storage, fetchImpl: slowFetch }),
+      discoverPort({ storage, fetchImpl: slowFetch }),
+    ]);
+
+    expect(p1).toBe(53830);
+    expect(p2).toBe(53830);
+
+    // Each port probed exactly once — confirms both calls shared one
+    // scan. Without coalescing we would see 2 calls for every port up
+    // to and including 53830.
+    for (const [port, count] of probeCallsPerPort) {
+      expect(count, `port ${port} probed ${count} times`).toBe(1);
+    }
+  });
 });
 
 describe("getCachedPort / ensurePort", () => {
