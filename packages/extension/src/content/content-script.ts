@@ -31,6 +31,7 @@ import {
   createWidgetController,
   type WidgetController,
 } from "./transitions.js";
+import { isDaemonSuggestionResponse } from "../daemon-shape.js";
 
 const LOG_PREFIX = "[twitter-helper]";
 
@@ -215,7 +216,7 @@ async function runOnce(): Promise<void> {
       payload = null;
     }
     if (signal.aborted) return;
-    if (!isDaemonSuggestionPayload(payload, tweetId)) {
+    if (!isDaemonSuggestionResponse(payload, tweetId)) {
       // Stale-cache signal. Reuse the same invalidate+retry path as
       // transport failure (inline so we preserve the existing flow).
       const fresh = (await requestInvalidatePort()).port;
@@ -253,7 +254,7 @@ async function runOnce(): Promise<void> {
         payload = null;
       }
       if (signal.aborted) return;
-      if (!isDaemonSuggestionPayload(payload, tweetId)) {
+      if (!isDaemonSuggestionResponse(payload, tweetId)) {
         console.warn(
           `${LOG_PREFIX} /suggestion body shape mismatch even after invalidate for ${tweetId}`,
         );
@@ -333,26 +334,6 @@ async function tryFetchSuggestion(
   }
 }
 
-/**
- * Shape guard for `/suggestion` response — matches the daemon contract
- * at `packages/daemon/src/server.ts#app.get("/suggestion", ...)` which
- * returns a full Candidate whose `tweet_id` matches the query. A
- * mismatched tweet_id triggers retry because a conforming daemon MUST
- * echo the requested id (review-loop f12).
- */
-function isDaemonSuggestionPayload(
-  payload: unknown,
-  expectedTweetId: string,
-): boolean {
-  if (payload === null || typeof payload !== "object") return false;
-  const r = payload as Record<string, unknown>;
-  return (
-    r.tweet_id === expectedTweetId &&
-    typeof r.tweet_url === "string" &&
-    typeof r.suggested_reply === "string" &&
-    typeof r.match_reason === "string"
-  );
-}
 
 /**
  * Re-run main() on SPA-style soft navigations. This is required because

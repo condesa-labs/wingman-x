@@ -14,6 +14,7 @@
  * route. Going through the worker keeps the popup idle while the scan
  * runs and avoids duplicate rescans if both sides race.
  */
+import { isDaemonCandidatesListResponse } from "../daemon-shape.js";
 export interface PopupCandidate {
   id: string;
   tweet_id: string;
@@ -109,14 +110,18 @@ function sendPortMessage(
 /**
  * `GET /candidates`. Throws on any transport error OR daemon-shape
  * mismatch so the caller (runFlow) can treat both as a stale-cache
- * signal, invalidate the port, and retry once (review-loop f12).
+ * signal, invalidate the port, and retry once (review-loop f12, f13).
  *
  * Shape mismatch matters because the cached port might belong to a
  * co-located local HTTP service (daemon restarted onto a different
  * auto-bumped port; old port now owned by something else). Without
  * this check, `body.candidates ?? []` would silently collapse any
  * 200 JSON into an empty list and pin the popup to the wrong
- * service indefinitely.
+ * service indefinitely. The validator verifies the FULL Candidate
+ * contract (see `packages/extension/src/daemon-shape.ts`) so a
+ * squatter answering with a close-but-not-quite payload — invalid
+ * `tweet_url`, wrong `status` value, missing timestamps — is
+ * rejected.
  */
 export async function fetchCandidates(
   port: number,
@@ -129,37 +134,12 @@ export async function fetchCandidates(
     throw new Error(`GET /candidates returned ${res.status}`);
   }
   const body = (await res.json()) as unknown;
-  if (!isCandidatesListResponse(body)) {
+  if (!isDaemonCandidatesListResponse(body)) {
     throw new Error(
       `GET /candidates response shape mismatch — cached port ${port} likely stale`,
     );
   }
-  return body.candidates;
-}
-
-/**
- * Shape guard for `GET /candidates` — matches the daemon contract at
- * `packages/daemon/src/server.ts` `app.get("/candidates", ...)`.
- */
-function isCandidatesListResponse(
-  body: unknown,
-): body is PopupCandidatesResponse {
-  if (body === null || typeof body !== "object") return false;
-  const list = (body as { candidates?: unknown }).candidates;
-  if (!Array.isArray(list)) return false;
-  for (const c of list) {
-    if (c === null || typeof c !== "object") return false;
-    const r = c as Record<string, unknown>;
-    if (
-      typeof r.tweet_id !== "string" ||
-      typeof r.tweet_url !== "string" ||
-      typeof r.suggested_reply !== "string" ||
-      typeof r.status !== "string"
-    ) {
-      return false;
-    }
-  }
-  return true;
+  return (body as PopupCandidatesResponse).candidates;
 }
 
 /**
