@@ -1,0 +1,8 @@
+{
+  "cross_model_review": false,
+  "cross_model_peer": "codex",
+  "cross_model_read_only": false,
+  "auto_retro": true,
+  "coverage_threshold": 85,
+  "skip_full_verify": false
+}
