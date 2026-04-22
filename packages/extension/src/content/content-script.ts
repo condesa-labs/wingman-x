@@ -18,13 +18,31 @@
  *   to the same URL doesn't spam the log, and we call `unmountDock()`
  *   when the new URL is no longer a tweet-detail page.
  */
-import { mountDock, unmountDock } from "./dock.js";
+import { unmountDock } from "./dock.js";
+import { unmountCard } from "./card.js";
 import { parseTweetId } from "./parse-tweet-url.js";
+import {
+  createWidgetController,
+  type WidgetController,
+} from "./transitions.js";
 
 const LOG_PREFIX = "[twitter-helper]";
 
 /** Track tweet ids we've already probed in this page lifetime. */
 const seenTweetIds = new Set<string>();
+/**
+ * The live Dock/Card controller, if any. One controller per route; we
+ * dispose it and start a fresh one on SPA navigation to a different
+ * tweet or on leaving a tweet-detail page.
+ */
+let activeController: WidgetController | null = null;
+
+function disposeActiveController(): void {
+  if (activeController !== null) {
+    activeController.dispose();
+    activeController = null;
+  }
+}
 
 interface GetPortResponse {
   port: number | null;
@@ -80,9 +98,11 @@ async function runOnce(): Promise<void> {
   const url = readPageUrl();
   const tweetId = parseTweetId(url);
   if (tweetId === null) {
-    // Navigated away from a tweet-detail page — unmount any Dock that
-    // might be lingering from a previous route.
+    // Navigated away from a tweet-detail page — tear down any live
+    // controller (or orphan Dock/Card) from a previous route.
+    disposeActiveController();
     unmountDock();
+    unmountCard();
     return;
   }
   if (seenTweetIds.has(tweetId)) return;
@@ -105,12 +125,20 @@ async function runOnce(): Promise<void> {
     );
     if (res.status === 200) {
       console.info(`${LOG_PREFIX} suggestion available for ${tweetId}`);
-      // CP05: render the Dock. The suggestion payload is stashed on the
-      // Dock's root element so CP06 can read it without re-fetching
-      // when wiring /candidates/:id/action click handlers.
+      // CP07: spin up a fresh controller. The controller owns the
+      // WidgetStateMachine + Dock/Card mount lifecycle so SPA
+      // navigation between tweets starts with a clean state machine.
       try {
         const payload: unknown = await res.json();
-        await mountDock({ tweetId, suggestionPayload: payload, port });
+        disposeActiveController();
+        const candidate = extractCandidateView(payload);
+        activeController = createWidgetController({
+          tweetId,
+          suggestionPayload: payload,
+          candidate,
+          port,
+        });
+        await activeController.start();
       } catch (err) {
         // JSON parse failure or unavailable DOM — warn, don't error.
         // The detection log above already fired, so the evaluator's
@@ -123,9 +151,11 @@ async function runOnce(): Promise<void> {
       }
     } else if (res.status === 404) {
       console.info(`${LOG_PREFIX} no suggestion for ${tweetId}`);
-      // No suggestion → make sure no stale Dock remains from a prior
+      // No suggestion → make sure no stale widget remains from a prior
       // route in the same tab.
+      disposeActiveController();
       unmountDock();
+      unmountCard();
     } else {
       console.warn(
         `${LOG_PREFIX} /suggestion returned ${res.status} for ${tweetId}`,
@@ -176,6 +206,30 @@ function installSoftNavigationHook(): void {
   };
 
   window.addEventListener("popstate", fire);
+}
+
+/**
+ * Flatten the /suggestion payload into the view shape the Card needs.
+ * Falls back to empty strings when fields are missing — the Card will
+ * still render, just with blank lines, rather than crashing the mount.
+ */
+function extractCandidateView(payload: unknown): {
+  matchReason: string;
+  suggestedReply: string;
+} {
+  if (payload === null || typeof payload !== "object") {
+    return { matchReason: "", suggestedReply: "" };
+  }
+  const record = payload as Record<string, unknown>;
+  const matchReason =
+    typeof record["match_reason"] === "string"
+      ? (record["match_reason"] as string)
+      : "";
+  const suggestedReply =
+    typeof record["suggested_reply"] === "string"
+      ? (record["suggested_reply"] as string)
+      : "";
+  return { matchReason, suggestedReply };
 }
 
 installSoftNavigationHook();
