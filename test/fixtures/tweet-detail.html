@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tweet</title>
+    <!--
+      CP04 fixture:
+      The content script reads this `<link rel=canonical>` to learn the
+      real tweet URL even when Playwright serves the page from a
+      localhost path. The pushState in the E2E keeps window.location in
+      sync with the canonical; parseTweetId accepts both.
+    -->
+    <link rel="canonical" href="https://twitter.com/jack/status/20" />
+  </head>
+  <body>
+    <!--
+      Minimal DOM shape the extension needs:
+        1. <article> container for the tweet body (CP04 + CP05 anchor).
+        2. Contenteditable reply composer with the Twitter-current
+           `data-testid="tweetTextarea_0"` selector, used by CP06 fill.
+      Nothing else is rendered because CP04's sole goal is the
+      page → daemon detection pipe; no widget UI in this checkpoint.
+    -->
+    <article>
+      <div class="tweet-body">Hello, Twitter.</div>
+    </article>
+    <div
+      role="textbox"
+      contenteditable="true"
+      data-testid="tweetTextarea_0"
+      aria-label="Tweet text"
+    ></div>
+  </body>
+</html>
