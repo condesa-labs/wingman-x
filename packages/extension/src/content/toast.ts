@@ -54,18 +54,12 @@ export function showToast(
   toast.setAttribute("aria-live", "polite");
   toast.dataset["testid"] = "twh-toast";
   toast.textContent = message;
-  // Start transparent; flip to visible on the next paint so the
-  // transition registers. Otherwise the first paint would already be at
-  // opacity: 1 with no fade-in.
-  toast.classList.add("twh-toast-hidden");
+  // Mount fully visible (opacity 1) — no fade-in. Previously we started
+  // at opacity 0 and rAF'd to visible, but Playwright's fullPage
+  // screenshot can snap before rAF fires, capturing an invisible toast
+  // and silently breaking the evidence. Fade-out on dismissal is kept.
+  toast.classList.add("twh-toast-visible");
   document.body.appendChild(toast);
-
-  // `requestAnimationFrame` → let the browser commit the hidden state,
-  // then toggle to visible so the transition runs.
-  requestAnimationFrame(() => {
-    toast.classList.remove("twh-toast-hidden");
-    toast.classList.add("twh-toast-visible");
-  });
 
   activeTimer = setTimeout(() => {
     toast.classList.remove("twh-toast-visible");
