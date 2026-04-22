@@ -144,6 +144,65 @@ describe("discoverPort", () => {
     expect(port).toBeNull();
   });
 
+  it("generation tracking: stale warm-up scan does not wipe forceFresh result (review-loop f10)", async () => {
+    // Peer's scenario: a warm-up scan starts while the daemon is still
+    // down. Before it finishes its full range, the daemon comes up on
+    // port X, and an explicit invalidate (`forceFresh: true`) runs a
+    // second scan that finds X. The first scan must NOT wipe storage
+    // on its tail completion.
+    const storage = makeStorage();
+    const DAEMON_PORT = 53830;
+    let daemonUp = false;
+
+    const delayedStub =
+      (delayMs: number): typeof fetch =>
+      ((input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const m = /localhost:(\d+)/.exec(url);
+        const port = m ? Number(m[1]) : NaN;
+        return new Promise<Response>((resolveFetch) => {
+          setTimeout(() => {
+            if (daemonUp && port === DAEMON_PORT) {
+              resolveFetch(jsonResponse(DAEMON_HEALTH_BODY));
+            } else {
+              resolveFetch(new Response(null, { status: 500 }));
+            }
+          }, delayMs);
+        });
+      }) as typeof fetch;
+
+    // Warm-up scan with slow probes, daemon currently DOWN.
+    const scanA = discoverPort({
+      storage,
+      fetchImpl: delayedStub(20),
+    });
+
+    // Give scanA time to start probing but not finish.
+    await new Promise((r) => setTimeout(r, 30));
+    daemonUp = true;
+
+    // Explicit invalidate — forceFresh starts a new generation. Fast
+    // probes so it finishes well before scanA does.
+    const scanB = discoverPort({
+      storage,
+      fetchImpl: delayedStub(1),
+      forceFresh: true,
+    });
+
+    const resultB = await scanB;
+    expect(resultB).toBe(DAEMON_PORT);
+    expect(storage.peek()[STORAGE_KEY]).toBe(DAEMON_PORT);
+
+    // scanA is still running. Wait for it to finish its full scan.
+    await scanA;
+
+    // Critical assertion: scanA's tail completion did NOT remove (or
+    // overwrite with an older result) the fresh port scanB cached.
+    // Without generation tracking, scanA's storage.remove on scan-
+    // exhaust would have wiped DAEMON_PORT here.
+    expect(storage.peek()[STORAGE_KEY]).toBe(DAEMON_PORT);
+  });
+
   it("coalesces concurrent calls into a single scan (review-loop f9)", async () => {
     // Without single-flight coalescing, two concurrent invalidations
     // (popup+content-script both hitting transport failure on the same

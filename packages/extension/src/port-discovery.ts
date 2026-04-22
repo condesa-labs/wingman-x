@@ -33,6 +33,15 @@ export interface DiscoveryOptions {
   storage?: SessionStorageLike;
   /** Per-port timeout. Default 150 ms. */
   timeoutMs?: number;
+  /**
+   * Force a fresh scan even if another scan is in-flight. Used by
+   * `invalidate_port` so an explicit invalidate does not inherit the
+   * result of an older warm-up scan that started while the daemon was
+   * still down (review-loop f10). The older scan is not cancelled; it
+   * completes but its tail storage writes are skipped because a newer
+   * generation has superseded it.
+   */
+  forceFresh?: boolean;
 }
 
 /**
@@ -55,20 +64,30 @@ export function defaultStorage(): SessionStorageLike {
 }
 
 /**
- * Single-flight coalescing for concurrent discoverPort() calls.
+ * Single-flight coalescing with generation tracking.
  *
- * Without this, popup + content-script both hitting `invalidate_port`
- * simultaneously would run two parallel scans whose completion order is
- * nondeterministic — a scan that exhausts AFTER another has just cached
- * a fresh port would wipe that fresh entry on its tail
- * `storage.remove(STORAGE_KEY)` call. With this, overlapping callers
- * share the in-flight promise and see identical results.
+ * Background:
+ *   - Two concurrent invalidations (popup + content-script on the same
+ *     daemon restart) share one scan → no race (review-loop f9).
+ *   - A warm-up scan in-flight when an explicit invalidate arrives
+ *     must NOT return the warm-up's stale result; the invalidate
+ *     starts a fresh scan and the stale scan's tail cache-writes are
+ *     skipped (review-loop f10).
  *
- * Tests do not hit this codepath concurrently (each test awaits its
- * discoverPort call before the next runs), so the module-scope state
- * resets between tests naturally.
+ * Mechanism:
+ *   - `inflightScan` holds the current scan promise (if any).
+ *   - `latestGeneration` is bumped at the start of every new scan.
+ *   - When a scan's loop writes to storage, it checks that its own
+ *     generation is still `latestGeneration`. An older scan whose
+ *     generation has been superseded silently skips its storage
+ *     `set`/`remove` call, leaving the newer scan's result untouched.
+ *
+ * Read paths (ensurePort → discoverPort without `forceFresh`) coalesce
+ * with any in-flight scan. Explicit invalidate paths set
+ * `forceFresh: true`, which starts a fresh generation.
  */
 let inflightScan: Promise<number | null> | null = null;
+let latestGeneration = 0;
 
 /**
  * Probe `range` in order and return the first port whose `/health`
@@ -77,20 +96,40 @@ let inflightScan: Promise<number | null> | null = null;
  *
  * Returns `null` when every port in the range is silent.
  *
- * Concurrent callers coalesce into a single scan — see `inflightScan`.
+ * Concurrent callers coalesce into a single scan unless `forceFresh`
+ * is set — see the module-scope comment above.
  */
 export async function discoverPort(
   options: DiscoveryOptions = {},
 ): Promise<number | null> {
-  if (inflightScan !== null) return inflightScan;
-  inflightScan = doDiscoverPort(options).finally(() => {
-    inflightScan = null;
+  if (options.forceFresh !== true && inflightScan !== null) {
+    return inflightScan;
+  }
+
+  latestGeneration += 1;
+  const myGeneration = latestGeneration;
+  const promise = doDiscoverPort(options, myGeneration).finally(() => {
+    // Only clear `inflightScan` if we are still the active scan. A
+    // newer scan that replaced us already updated `inflightScan` and
+    // will clear it on its own completion.
+    if (inflightScan === promise) {
+      inflightScan = null;
+    }
   });
-  return inflightScan;
+  inflightScan = promise;
+  return promise;
 }
 
+/**
+ * Generation-aware scan body. Returns the first daemon-shaped port it
+ * finds (or null). Mutates `chrome.storage.session` ONLY when its own
+ * generation is still the latest — an older scan whose generation has
+ * been superseded by a forceFresh caller skips its writes so the new
+ * scan's result stands.
+ */
 async function doDiscoverPort(
   options: DiscoveryOptions,
+  myGeneration: number,
 ): Promise<number | null> {
   const range = options.range ?? PORT_RANGE;
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -99,12 +138,17 @@ async function doDiscoverPort(
 
   for (const port of range) {
     if (await probe(port, fetchImpl, timeoutMs)) {
-      await storage.set({ [STORAGE_KEY]: port });
+      if (myGeneration === latestGeneration) {
+        await storage.set({ [STORAGE_KEY]: port });
+      }
       return port;
     }
   }
-  // Scan exhausted — drop any stale cached value to force a rescan next call.
-  await storage.remove(STORAGE_KEY);
+  // Scan exhausted — drop any stale cached value to force a rescan
+  // next call, but ONLY if no newer scan has superseded us.
+  if (myGeneration === latestGeneration) {
+    await storage.remove(STORAGE_KEY);
+  }
   return null;
 }
 

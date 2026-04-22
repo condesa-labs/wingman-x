@@ -59,10 +59,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (isInvalidatePortMessage(message)) {
     void (async () => {
       try {
-        // discoverPort scans the full range and overwrites the cache
-        // with whatever currently responds — so a daemon restart onto
-        // a different port is picked up here without any extra state.
-        const port = await discoverPort();
+        // `forceFresh: true` bypasses a warm-up scan that may have
+        // started while the daemon was down and already probed past
+        // its eventual port — otherwise the invalidate would inherit
+        // that stale null result (review-loop f10). The new scan runs
+        // in its own generation; any older in-flight scan still
+        // completes but skips its tail storage writes.
+        const port = await discoverPort({ forceFresh: true });
         sendResponse({ port });
       } catch (err) {
         sendResponse({
