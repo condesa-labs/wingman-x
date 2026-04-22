@@ -1,17 +1,26 @@
 /**
- * Dock action dispatcher (CP06).
+ * Dock + Card action dispatcher (CP06 + CP07).
  *
- * Single entry point — `handleAction(action, context)` — that the dock
- * calls on every icon click. Routes to:
+ * Single entry point — `handleAction(action, context)` — that both the
+ * Dock and the Card call on every icon click. Routes to:
  *   - `fill`     → fillReplyComposer + POST action=filled
- *   - `dismiss`  → POST action=dismissed + unmountDock
+ *   - `dismiss`  → POST action=dismissed + (ctx.onDismiss ?? unmountDock)
  *   - `regen`    → POST action=regen_requested + showToast 2500 ms
  *   - `quote`    → showToast "Coming in Phase 2" (no network)
  *   - `save`     → showToast "Coming in Phase 2" (no network)
- *   - `expand`   → no-op (CP07 owns the card state)
+ *   - `expand`   → ctx.onExpand() (no-op if undefined — CP06 Dock path)
+ *   - `collapse` → ctx.onCollapse() (no-op if undefined — only the Card
+ *                  wires this; the Dock has no ⇲ button)
+ *
+ * Why optional callbacks in the context?
+ *   CP06 wired dismiss directly to `unmountDock()`. CP07 introduces the
+ *   Card, whose dismiss must tear down the Card (not the Dock). Passing
+ *   `onDismiss` / `onExpand` / `onCollapse` in the click-time context
+ *   lets the CP07 transition controller own state swaps without forking
+ *   the dispatcher or adding module-level singletons that race mount.
  *
  * Network errors are logged at `console.info`, NOT `console.error`.
- * CP04/05/06 all enforce a zero-error console budget; a transient
+ * CP04/05/06/07 all enforce a zero-error console budget; a transient
  * daemon hiccup must not crash the UI nor fail the evidence check.
  */
 import { fillReplyComposer } from "./fill-reply.js";
@@ -24,14 +33,15 @@ export type DockAction =
   | "regen"
   | "quote"
   | "save"
-  | "expand";
+  | "expand"
+  | "collapse";
 
 const ACTIONS_LOG_PREFIX = "[twitter-helper]";
 
 /**
  * Everything the dispatcher needs at click-time. The content script
- * gathers this at mount-time and stashes it on the dock instance so
- * clicks don't need to re-fetch.
+ * gathers this at mount-time and stashes it on the dock / card instance
+ * so clicks don't need to re-fetch.
  */
 export interface ActionContext {
   /** Tweet id (the path param on POST /candidates/:id/action). */
@@ -44,6 +54,23 @@ export interface ActionContext {
    * click still fires the local UI effect, e.g. toast / unmount).
    */
   port: number | null;
+  /**
+   * Optional "what to do after dismiss" hook — defaults to
+   * `unmountDock()` when undefined (CP06 Dock path). The Card passes
+   * a callback that unmounts the Card, so the transition controller
+   * stays in charge of which shape is on-screen.
+   */
+  onDismiss?: () => void;
+  /**
+   * Optional "request expand" hook. Present only on the Dock context
+   * (CP07); the Card has no ⇱ button. Undefined → click is a no-op.
+   */
+  onExpand?: () => void;
+  /**
+   * Optional "request collapse" hook. Present only on the Card context
+   * (CP07); the Dock has no ⇲ button. Undefined → click is a no-op.
+   */
+  onCollapse?: () => void;
 }
 
 /**
@@ -97,7 +124,14 @@ export async function handleAction(
       if (ctx.port !== null) {
         void postAction(ctx.port, ctx.tweetId, "dismissed");
       }
-      unmountDock();
+      // The Card's context passes its own teardown via `onDismiss`. The
+      // Dock's context leaves it undefined, falling back to the CP06
+      // `unmountDock()` path.
+      if (ctx.onDismiss !== undefined) {
+        ctx.onDismiss();
+      } else {
+        unmountDock();
+      }
       return;
     }
     case "regen": {
@@ -117,7 +151,15 @@ export async function handleAction(
       return;
     }
     case "expand": {
-      // CP07 owns Card state + expand. Intentionally inert in CP06.
+      // CP07: delegate to the transition controller via the context.
+      // Left inert if the caller didn't wire it (e.g. a Dock mounted
+      // without CP07's wrapper — defensive, not expected in production).
+      ctx.onExpand?.();
+      return;
+    }
+    case "collapse": {
+      // CP07: Card's ⇲ button. Same delegation pattern as `expand`.
+      ctx.onCollapse?.();
       return;
     }
   }

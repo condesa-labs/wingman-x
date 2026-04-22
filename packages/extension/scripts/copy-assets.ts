@@ -86,19 +86,25 @@ function listJsFiles(dir: string): string[] {
  * `export` tokens, producing a single classic script that runs
  * identically to the module-form version.
  *
- * Dependency order (CP06):
+ * Dependency order (CP07):
  *   1. parse-tweet-url   — pure helpers, no deps
  *   2. position-store    — pure helpers, no deps
  *   3. drag              — depends on position-store
  *   4. fill-reply        — pure DOM helpers, no deps
  *   5. toast             — pure DOM helpers, no deps
- *   6. actions           — depends on fill-reply, toast, dock (circular
+ *   6. widget-state      — pure state machine, no deps
+ *   7. actions           — depends on fill-reply, toast, dock (circular
  *                          at module level; safe because all cross-file
  *                          calls happen at click-time, after the IIFE
  *                          has declared every symbol)
- *   7. dock              — depends on drag, position-store, actions,
+ *   8. card              — depends on drag, position-store, actions,
+ *                          toast (circular w/ actions — same as dock)
+ *   9. dock              — depends on drag, position-store, actions,
  *                          toast (circular w/ actions, see above)
- *   8. content-script    — depends on dock + parse-tweet-url
+ *  10. transitions       — depends on widget-state, dock, card,
+ *                          position-store
+ *  11. content-script    — depends on dock, card, parse-tweet-url,
+ *                          transitions
  */
 const CONTENT_BUNDLE_ORDER: readonly string[] = [
   "parse-tweet-url.js",
@@ -106,8 +112,11 @@ const CONTENT_BUNDLE_ORDER: readonly string[] = [
   "drag.js",
   "fill-reply.js",
   "toast.js",
+  "widget-state.js",
   "actions.js",
+  "card.js",
   "dock.js",
+  "transitions.js",
   "content-script.js",
 ];
 

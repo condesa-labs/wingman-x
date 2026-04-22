@@ -118,12 +118,21 @@ test("Dock ⇱ → Card → ✍️ fill → drag → ⇲ collapse → reload ret
   }
 
   // Card should be anchored at (approximately) the Dock's pre-expand
-  // position. Allow 30 px slack for the transition scale-from-center
-  // offset at the moment of mount.
+  // position. Tolerance is loose here because the Card is WIDER than
+  // the Dock — when the Dock sits at the right-edge default, the
+  // position-store clamp pushes the Card's left inward by the width
+  // delta so the Card stays fully on-screen. The later "collapse →
+  // dock at Card's post-drag position" assertion is tight (1 px) and
+  // is the real test of anchor fidelity under a user-controlled
+  // position.
   const cardBox = await card.boundingBox();
   if (cardBox === null) throw new Error("card has no bounding box");
-  expect(Math.abs(cardBox.x - dockBoxBefore.x)).toBeLessThanOrEqual(30);
+  expect(cardBox.y).toBeLessThanOrEqual(dockBoxBefore.y + 30);
   expect(Math.abs(cardBox.y - dockBoxBefore.y)).toBeLessThanOrEqual(30);
+  // Horizontal: Card must appear in the same half of the viewport as
+  // the Dock (no surprise jump to the opposite edge).
+  expect(cardBox.x).toBeGreaterThan(dockBoxBefore.x - 320);
+  expect(cardBox.x).toBeLessThanOrEqual(dockBoxBefore.x + 30);
 
   await page.screenshot({
     path: resolve(EVIDENCE_DIR, "card-visible.png"),
@@ -145,10 +154,18 @@ test("Dock ⇱ → Card → ✍️ fill → drag → ⇲ collapse → reload ret
   await expect(cardHandle).toBeVisible();
   const handleBox = await cardHandle.boundingBox();
   if (handleBox === null) throw new Error("card handle has no bounding box");
-  const startX = handleBox.x + handleBox.width / 2;
+  // Grab near the LEFT edge of the header so the pointer → card-top-left
+  // offset is small and predictable. The drag helper preserves the
+  // offset from pointer to card-top-left for the duration of the drag,
+  // so the card's final top-left lands at `(dropX - offsetX, dropY -
+  // offsetY)`. Grabbing at the left edge keeps the offset small enough
+  // that `dropX` is a good approximation of the card's final left.
+  const startX = handleBox.x + 10;
   const startY = handleBox.y + handleBox.height / 2;
   const dropX = 160;
   const dropY = 380;
+  const expectedCardX = cardBox.x + (dropX - startX);
+  const expectedCardY = cardBox.y + (dropY - startY);
 
   await page.mouse.move(startX, startY);
   await page.mouse.down();
@@ -164,12 +181,16 @@ test("Dock ⇱ → Card → ✍️ fill → drag → ⇲ collapse → reload ret
     return entry["widget_position"] ?? null;
   })) as { x: number; y: number } | null;
   expect(afterCardDrag).not.toBeNull();
+  // The persisted {x, y} is the Card's top-left after the drag. Compare
+  // against the computed `expected{X,Y}` that follows the pointer by the
+  // same delta the mouse moved. Allow 5 px for rounding between
+  // `applyPosition`'s `Math.round()` and the bounding-box APIs.
   expect(
-    Math.abs((afterCardDrag as { x: number }).x - dropX),
-  ).toBeLessThanOrEqual(40);
+    Math.abs((afterCardDrag as { x: number }).x - expectedCardX),
+  ).toBeLessThanOrEqual(5);
   expect(
-    Math.abs((afterCardDrag as { y: number }).y - dropY),
-  ).toBeLessThanOrEqual(40);
+    Math.abs((afterCardDrag as { y: number }).y - expectedCardY),
+  ).toBeLessThanOrEqual(5);
 
   const cardBoxAfterDrag = await card.boundingBox();
   if (cardBoxAfterDrag === null) {

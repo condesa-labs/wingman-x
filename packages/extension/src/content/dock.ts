@@ -58,6 +58,27 @@ export interface DockOptions {
   port?: number | null;
   /** Storage override for tests. */
   storage?: LocalStorageLike;
+  /**
+   * CP07: callback the ⇱ icon invokes. Left undefined for the CP06
+   * direct-mount path, in which case clicking ⇱ is a no-op (as CP06
+   * shipped). The CP07 transition controller passes a function that
+   * flips the state machine into `expanding`.
+   */
+  onExpand?: () => void;
+  /**
+   * CP07: callback the 👎 icon invokes. Left undefined → fall back to
+   * the CP06 `unmountDock()` behaviour. The transition controller wires
+   * this to tear down the widget without re-entering its own state
+   * machine (dismiss is terminal).
+   */
+  onDismiss?: () => void;
+  /**
+   * CP07: explicit top-left the Dock should mount at. When omitted we
+   * apply the persisted position (CP05 behaviour). The transition
+   * controller passes the Card's last position on collapse so the Dock
+   * reappears at the same anchor.
+   */
+  anchor?: WidgetPosition;
 }
 
 /** Per-instance teardown hook — cleared on unmount. */
@@ -86,12 +107,21 @@ export async function mountDock(
   const root = buildDockElement(options);
   document.body.appendChild(root);
 
-  // Apply persisted position if any, clamped to current viewport. If
-  // nothing persisted, leave the CSS right-edge default in place.
-  const saved = await loadPosition({ storage: options.storage });
-  if (saved !== null) {
+  // Position precedence (highest first):
+  //   1. Explicit `anchor` from the caller (CP07 collapse → Dock at the
+  //      Card's last position).
+  //   2. Persisted position from chrome.storage.local (CP05 drag-persist).
+  //   3. CSS right-edge default (nothing applied here).
+  //
+  // (1) and (2) are both clamped to the current viewport so a tiny
+  // window resize since the last save cannot put the Dock off-screen.
+  let positionToApply: WidgetPosition | null = options.anchor ?? null;
+  if (positionToApply === null) {
+    positionToApply = await loadPosition({ storage: options.storage });
+  }
+  if (positionToApply !== null) {
     const rect = root.getBoundingClientRect();
-    const clamped = clampToViewport(saved, {
+    const clamped = clampToViewport(positionToApply, {
       width: window.innerWidth,
       height: window.innerHeight,
       dockWidth: rect.width,
@@ -131,6 +161,12 @@ export async function mountDock(
         tweetId: options.tweetId,
         suggestedReply,
         port,
+        ...(options.onExpand !== undefined
+          ? { onExpand: options.onExpand }
+          : {}),
+        ...(options.onDismiss !== undefined
+          ? { onDismiss: options.onDismiss }
+          : {}),
       });
     });
   }
@@ -350,5 +386,16 @@ const FALLBACK_CSS = `
 }
 #twh-dock button.twh-action.twh-primary:hover {
   background: #1a8cd8;
+}
+#twh-dock {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+#twh-dock.twh-enter {
+  opacity: 0;
+  transform: scale(0.95);
+}
+#twh-dock.twh-enter-active {
+  opacity: 1;
+  transform: scale(1);
 }
 `;
