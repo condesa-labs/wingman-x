@@ -58,13 +58,15 @@ function clearCards(container: HTMLElement): void {
 /**
  * Open the given URL in a new active tab. `chrome.tabs.create` is
  * available to popups without the `"tabs"` permission — only
- * URL/Title/etc. readers require that permission. Closing the popup
- * after open keeps the UX consistent with Chrome's built-in "open in
- * new tab" menu items.
+ * URL/Title/etc. readers require that permission. We AWAIT the promise
+ * before closing the popup: if we `window.close()` synchronously after
+ * the call, Chrome may cancel the pending tab creation with the popup's
+ * own destruction, which was observed flaking the E2E's "new tab opens"
+ * assertion under a fully-seeded daemon.
  */
-function openInNewTab(url: string): void {
+async function openInNewTab(url: string): Promise<void> {
   try {
-    chrome.tabs.create({ url, active: true });
+    await chrome.tabs.create({ url, active: true });
   } catch (err) {
     console.info(
       `${LOG_PREFIX} chrome.tabs.create failed: ${
@@ -90,7 +92,9 @@ function renderList(
 
   for (const candidate of active) {
     const card = renderCard(candidate, {
-      onOpen: (c) => openInNewTab(c.tweet_url),
+      onOpen: (c) => {
+        void openInNewTab(c.tweet_url);
+      },
       onDismiss: (c) => handleDismiss(c, port, container),
     });
     container.append(card);
