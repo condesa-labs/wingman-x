@@ -37,14 +37,27 @@ function makeStorage(
   };
 }
 
-/** Fetch stub that returns 200 for a specific port and 500 otherwise. */
+/**
+ * Body the daemon returns from GET /health — see
+ * `packages/daemon/src/server.ts` — which the port probe now verifies.
+ */
+const DAEMON_HEALTH_BODY = JSON.stringify({ status: "ok", version: "0.1.0" });
+
+function jsonResponse(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/** Fetch stub that returns a valid daemon /health body for a specific port. */
 function fakeFetch(okPort: number | null): typeof fetch {
   return ((input: string | URL | Request) => {
     const url = typeof input === "string" ? input : input.toString();
     const m = /localhost:(\d+)/.exec(url);
     const port = m ? Number(m[1]) : NaN;
     if (okPort !== null && port === okPort) {
-      return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(jsonResponse(DAEMON_HEALTH_BODY));
     }
     return Promise.resolve(new Response(null, { status: 500 }));
   }) as typeof fetch;
@@ -82,6 +95,53 @@ describe("discoverPort", () => {
     expect(PORT_RANGE).toEqual([
       53827, 53828, 53829, 53830, 53831, 53832, 53833, 53834, 53835, 53836,
     ]);
+  });
+
+  it("rejects a 2xx /health whose body does not match the daemon contract", async () => {
+    // A co-located local service on one of our probe ports might return a
+    // 200 with an unrelated body. Before this fix the probe would cache
+    // that port and every subsequent daemon request would silently route
+    // to the wrong service. Now the body shape is required.
+    const storage = makeStorage();
+    const unrelatedOk = ((input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const m = /localhost:(\d+)/.exec(url);
+      const port = m ? Number(m[1]) : NaN;
+      // Port 53830 returns 200 with a NON-daemon body — should NOT be cached.
+      if (port === 53830) {
+        return Promise.resolve(
+          jsonResponse(JSON.stringify({ service: "not-us", ok: true })),
+        );
+      }
+      // Port 53832 returns the real daemon body — should be cached.
+      if (port === 53832) {
+        return Promise.resolve(jsonResponse(DAEMON_HEALTH_BODY));
+      }
+      return Promise.resolve(new Response(null, { status: 500 }));
+    }) as typeof fetch;
+
+    const port = await discoverPort({ storage, fetchImpl: unrelatedOk });
+    expect(port).toBe(53832);
+    expect(storage.peek()[STORAGE_KEY]).toBe(53832);
+  });
+
+  it("rejects a 2xx /health that is not JSON", async () => {
+    const storage = makeStorage();
+    const textOk = ((input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const m = /localhost:(\d+)/.exec(url);
+      const port = m ? Number(m[1]) : NaN;
+      if (port === 53827) {
+        // Some random service replies 200 + "OK" text.
+        return Promise.resolve(
+          new Response("OK", { status: 200, headers: { "content-type": "text/plain" } }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 500 }));
+    }) as typeof fetch;
+
+    const port = await discoverPort({ storage, fetchImpl: textOk });
+    expect(port).toBeNull();
   });
 });
 
@@ -133,14 +193,19 @@ describe("fetchWithPortRetry", () => {
       const m = /localhost:(\d+)/.exec(url);
       const port = m ? Number(m[1]) : NaN;
 
-      // Call 1: cached probe against 53827 -> fail.
+      // Call 1: cached-port request against 53827 -> transport fail.
       if (calls === 1) {
         expect(port).toBe(53827);
         return Promise.reject(new Error("ECONNREFUSED"));
       }
-      // Subsequent calls: scan finds 53830 responsive.
+      // Rescan: /health probe against 53830 must return a daemon-shaped
+      // body so isDaemonHealthBody accepts it. /config (the actual
+      // retry) returns the daemon-shaped response object regardless.
       if (port === 53830) {
-        return Promise.resolve(new Response(null, { status: 200 }));
+        if (url.endsWith("/health")) {
+          return Promise.resolve(jsonResponse(DAEMON_HEALTH_BODY));
+        }
+        return Promise.resolve(jsonResponse("{}"));
       }
       return Promise.resolve(new Response(null, { status: 500 }));
     }) as typeof fetch;

@@ -10,13 +10,19 @@
  *     the returned payload; on 404, log and do nothing. The documented
  *     info-level lines are preserved for downstream evaluators.
  *
- * SPA awareness:
- *   Twitter is a single-page app, so navigating /jack → /jack/status/20
- *   does not re-run content scripts. We wrap history.pushState/
+ * SPA awareness (refactored per review-loop f7):
+ *   Twitter is a single-page app — navigating /jack → /jack/status/20
+ *   does not re-run content scripts. We wrap history.pushState /
  *   replaceState and listen for popstate so main() re-fires on soft
- *   navigations. We de-dupe on a Set<tweetId> so a repeated pushState
- *   to the same URL doesn't spam the log, and we call `unmountDock()`
- *   when the new URL is no longer a tweet-detail page.
+ *   navigations. State is scoped to the CURRENT ROUTE, not the tab
+ *   lifetime, so:
+ *     - Navigating A → B → A refetches A (previous `seenTweetIds` Set
+ *       never cleared would have silently skipped it).
+ *     - An in-flight `/suggestion` fetch for route A is aborted on
+ *       route change so a late response can never overwrite route B's
+ *       UI with A's data.
+ *     - Same-route re-fires (pushState immediately followed by
+ *       replaceState for the same URL) are a cheap no-op.
  */
 import { unmountDock } from "./dock.js";
 import { unmountCard } from "./card.js";
@@ -28,8 +34,18 @@ import {
 
 const LOG_PREFIX = "[twitter-helper]";
 
-/** Track tweet ids we've already probed in this page lifetime. */
-const seenTweetIds = new Set<string>();
+/**
+ * State scoped to the tweet the page currently shows. Replaced on
+ * route change; consulted inside async code via the `signal` to
+ * detect staleness.
+ */
+interface RouteState {
+  tweetId: string;
+  controller: AbortController;
+}
+
+let currentRoute: RouteState | null = null;
+
 /**
  * The live Dock/Card controller, if any. One controller per route; we
  * dispose it and start a fresh one on SPA navigation to a different
@@ -42,6 +58,20 @@ function disposeActiveController(): void {
     activeController.dispose();
     activeController = null;
   }
+}
+
+/**
+ * Tear down all route-scoped state. Safe to call repeatedly; the next
+ * runOnce() will rebuild from scratch.
+ */
+function disposeCurrentRoute(): void {
+  if (currentRoute !== null) {
+    currentRoute.controller.abort();
+    currentRoute = null;
+  }
+  disposeActiveController();
+  unmountDock();
+  unmountCard();
 }
 
 interface GetPortResponse {
@@ -97,18 +127,32 @@ function readPageUrl(): string {
 async function runOnce(): Promise<void> {
   const url = readPageUrl();
   const tweetId = parseTweetId(url);
+
   if (tweetId === null) {
-    // Navigated away from a tweet-detail page — tear down any live
-    // controller (or orphan Dock/Card) from a previous route.
-    disposeActiveController();
-    unmountDock();
-    unmountCard();
+    // Navigated away from a tweet-detail page — tear down route state
+    // and any live widget. Safe to call even if nothing is active.
+    disposeCurrentRoute();
     return;
   }
-  if (seenTweetIds.has(tweetId)) return;
-  seenTweetIds.add(tweetId);
+
+  // Same-route re-fire (pushState immediately followed by replaceState
+  // to the same URL) is a cheap no-op: the existing route owns its
+  // fetch/widget lifecycle already.
+  if (currentRoute !== null && currentRoute.tweetId === tweetId) {
+    return;
+  }
+
+  // Route change — cancel in-flight fetch + dispose previous widget.
+  // Anything pending on the previous route will observe `signal.aborted`
+  // after its next await and exit without touching the DOM.
+  disposeCurrentRoute();
+
+  const route: RouteState = { tweetId, controller: new AbortController() };
+  currentRoute = route;
+  const { signal } = route.controller;
 
   const { port } = await requestPort();
+  if (signal.aborted) return;
   if (port === null) {
     // The spec documents the info-level log for 200/404; a missing port
     // is a transient error and gets a warn — CP04's "zero errors"
@@ -121,8 +165,10 @@ async function runOnce(): Promise<void> {
   try {
     const res = await fetch(
       `http://localhost:${port}/suggestion?tweet_id=${encodeURIComponent(tweetId)}`,
-      { method: "GET" },
+      { method: "GET", signal },
     );
+    if (signal.aborted) return;
+
     if (res.status === 200) {
       console.info(`${LOG_PREFIX} suggestion available for ${tweetId}`);
       // CP07: spin up a fresh controller. The controller owns the
@@ -130,6 +176,7 @@ async function runOnce(): Promise<void> {
       // navigation between tweets starts with a clean state machine.
       try {
         const payload: unknown = await res.json();
+        if (signal.aborted) return;
         disposeActiveController();
         const candidate = extractCandidateView(payload);
         activeController = createWidgetController({
@@ -139,6 +186,10 @@ async function runOnce(): Promise<void> {
           port,
         });
         await activeController.start();
+        if (signal.aborted) {
+          // Route changed while mounting — drop the freshly-built widget.
+          disposeActiveController();
+        }
       } catch (err) {
         // JSON parse failure or unavailable DOM — warn, don't error.
         // The detection log above already fired, so the evaluator's
@@ -162,6 +213,8 @@ async function runOnce(): Promise<void> {
       );
     }
   } catch (err) {
+    // Route-change aborts land here — swallow silently.
+    if (signal.aborted) return;
     // Transport failure. Re-validating the port on failure is the
     // responsibility of CP03's fetchWithPortRetry, which is not routed
     // here intentionally — the content script talks directly to

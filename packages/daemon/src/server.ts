@@ -18,6 +18,19 @@ import {
   saveState,
 } from "./state.js";
 
+declare module "fastify" {
+  interface FastifyInstance {
+    /**
+     * Update the server's in-memory state with the bound port AND persist
+     * through the same state reference the handlers save on mutation.
+     * Called by `chooseAndBindPort` after a successful listen so a later
+     * `POST /candidates` does not overwrite `state.json` with a port-less
+     * snapshot (the symptom of the review-loop f1 regression).
+     */
+    syncPort: (port: number) => void;
+  }
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
   readFileSync(resolve(__dirname, "../package.json"), "utf8"),
@@ -66,13 +79,27 @@ export async function buildServer(
   });
 
   // Load persisted state once at build time. All mutation methods below
-  // operate on this in-memory copy and re-persist via saveState().
-  let state = loadState();
+  // operate on this in-memory copy and re-persist via saveState(). We
+  // only ever MUTATE `state` (never reassign) so every handler and
+  // `syncPort` below share the same object reference.
+  const state = loadState();
   if (options.port !== undefined) {
-    state = { ...state, port: options.port };
+    state.port = options.port;
     // Don't save here — the main entrypoint saves state after a
     // successful listen so we don't write a port that failed to bind.
   }
+
+  app.decorate("syncPort", (port: number) => {
+    state.port = port;
+    try {
+      saveState(state);
+    } catch {
+      // Listen has already succeeded; a persistence failure here is
+      // non-fatal — the daemon runs, it just won't recall the port on
+      // the next boot. Matches the contract of `port.persistPort`
+      // which this decoration replaces.
+    }
+  });
 
   app.get("/health", async () => ({ status: "ok", version: pkg.version }));
 

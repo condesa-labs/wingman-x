@@ -59,7 +59,17 @@ export async function chooseAndBindPort(
   for (const port of range) {
     try {
       await app.listen({ port, host });
-      persistPort(port);
+      // Route state updates through the server's `syncPort` decoration
+      // so buildServer's in-memory `state` stays consistent with disk.
+      // Fallback to the legacy standalone `persistPort` only when the
+      // caller bound on a Fastify instance NOT built via `buildServer`
+      // (bare tests). In the daemon's real boot path, syncPort wins.
+      const app_ = app as FastifyInstance & { syncPort?: (p: number) => void };
+      if (typeof app_.syncPort === "function") {
+        app_.syncPort(port);
+      } else {
+        persistPort(port);
+      }
       log(`[daemon] listening on port ${port}`);
       return port;
     } catch (err) {

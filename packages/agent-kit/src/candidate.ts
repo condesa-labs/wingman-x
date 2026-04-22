@@ -26,6 +26,23 @@ export const MatchCategorySchema = z.enum(["selected", "topic", "trending"]);
 export type MatchCategory = z.infer<typeof MatchCategorySchema>;
 
 /**
+ * Must match `packages/daemon/src/schemas.ts#TWEET_URL_RE` verbatim.
+ * Kept duplicated here (rather than imported) so agent-kit stays a
+ * small, self-contained surface with no daemon-runtime dependency.
+ * Integration test proves the two regexes agree.
+ */
+const TWEET_URL_RE =
+  /^https:\/\/(?:www\.)?(?:twitter|x)\.com\/[^/]+\/status\/\d+(?:[/?#].*)?$/;
+
+const TweetUrlSchema = z
+  .string()
+  .url()
+  .refine((v) => TWEET_URL_RE.test(v), {
+    message:
+      "tweet_url must be an https://twitter.com or https://x.com /<handle>/status/<id> URL",
+  });
+
+/**
  * `CandidateInput` — what the agent POSTs. Server-managed fields
  * (`status`, `status_updated_at`, `created_at`) are optional on input;
  * the server fills them in if omitted. `kb_refs` defaults to `[]` on
@@ -43,7 +60,7 @@ export type MatchCategory = z.infer<typeof MatchCategorySchema>;
 export const CandidateInputSchema = z.object({
   id: z.string().min(1),
   tweet_id: z.string().min(1),
-  tweet_url: z.string().url(),
+  tweet_url: TweetUrlSchema,
   author_handle: z.string().min(1),
   tweet_text: z.string(),
   suggested_reply: z.string().min(1),

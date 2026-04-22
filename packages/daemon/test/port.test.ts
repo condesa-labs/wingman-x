@@ -119,6 +119,49 @@ describe("port auto-bump", () => {
     expect(parsed.port).toBe(TEST_RANGE[0]);
   });
 
+  it("preserves the bound port across a subsequent POST /candidates", async () => {
+    // f1 regression: before the syncPort decoration, buildServer's
+    // closure-captured `state` was loaded BEFORE chooseAndBindPort wrote
+    // the port, so the first handler-invoked saveState(state) would
+    // overwrite state.json with a port-less snapshot.
+    app = await buildServer();
+    const chosen = await chooseAndBindPort(app, { range: [...TEST_RANGE] });
+    expect(chosen).toBe(TEST_RANGE[0]);
+
+    // Sanity — port landed on disk via syncPort.
+    expect(JSON.parse(readFileSync(ctx.statePath, "utf8")).port).toBe(chosen);
+
+    // POST a candidate. The handler runs saveState(state) using the same
+    // `state` object that syncPort mutated, so port MUST survive.
+    const post = await app.inject({
+      method: "POST",
+      url: "/candidates",
+      payload: {
+        candidates: [
+          {
+            id: "f1-regress",
+            tweet_id: "f1-regress",
+            tweet_url: "https://x.com/foo/status/123",
+            author_handle: "@foo",
+            tweet_text: "regression check",
+            suggested_reply: "hi",
+            match_reason: "test",
+            match_category: "selected",
+            kb_refs: [],
+          },
+        ],
+      },
+    });
+    expect(post.statusCode).toBe(200);
+
+    // Critical: port still on disk after the handler's saveState.
+    expect(JSON.parse(readFileSync(ctx.statePath, "utf8")).port).toBe(chosen);
+
+    // And /config reports the bound port (pre-fix this returned undefined).
+    const cfg = await app.inject({ method: "GET", url: "/config" });
+    expect(cfg.json().port).toBe(chosen);
+  });
+
   it("logs a grep-able listen line via the provided logger", async () => {
     app = await buildServer();
     const lines: string[] = [];

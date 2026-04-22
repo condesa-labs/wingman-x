@@ -31,12 +31,11 @@ import { createDaemonClient, CandidateSchema } from "../src/index.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * We launch the daemon exactly the way `npm --workspace @twitter-helper/daemon run dev`
- * does: via `tsx` on `bin/dev.ts`. That's the CP01-produced launcher, and
- * it uses the CP02-persistent Fastify server. We intentionally do NOT go
- * through the emitted `dist/bin/dev.js` because the daemon's build step
- * does not copy `package.json` into `dist/` (a latent CP01 wart — out of
- * scope for this checkpoint and explicitly outside our scope constraint).
+ * We launch the daemon via `tsx` on `bin/dev.ts` — the same launcher
+ * `npm --workspace @twitter-helper/daemon run dev` uses. The daemon's
+ * tsconfig.build.json now emits a flat `dist/` layout, but the
+ * integration test keeps using tsx so agent-kit never depends on the
+ * daemon having been rebuilt.
  */
 const DAEMON_ENTRY = resolve(__dirname, "../../daemon/bin/dev.ts");
 const TSX_BIN = resolve(
@@ -110,11 +109,16 @@ describe("integration: agent-kit against real daemon", () => {
   it("round-trips POST /candidates → GET /candidates with correct shape", async () => {
     const client = createDaemonClient(port);
 
+    // Use realistic snowflake-style numeric tweet ids so the URLs match
+    // the daemon's tightened tweet_url validator
+    // (/<handle>/status/\d+ on twitter.com|x.com).
+    const TWEET_ID_1 = "1790000000000000001";
+    const TWEET_ID_2 = "1790000000000000002";
     const inputs = [
       {
         id: "uuid-int-1",
-        tweet_id: "int-tweet-1",
-        tweet_url: "https://x.com/alice_ai/status/int-tweet-1",
+        tweet_id: TWEET_ID_1,
+        tweet_url: `https://x.com/alice_ai/status/${TWEET_ID_1}`,
         author_handle: "@alice_ai",
         tweet_text: "integration test tweet",
         suggested_reply: "integration test reply 1",
@@ -124,8 +128,8 @@ describe("integration: agent-kit against real daemon", () => {
       },
       {
         id: "uuid-int-2",
-        tweet_id: "int-tweet-2",
-        tweet_url: "https://x.com/bob_io/status/int-tweet-2",
+        tweet_id: TWEET_ID_2,
+        tweet_url: `https://x.com/bob_io/status/${TWEET_ID_2}`,
         author_handle: "@bob_io",
         tweet_text: "another integration test tweet",
         suggested_reply: "integration test reply 2",
@@ -149,8 +153,8 @@ describe("integration: agent-kit against real daemon", () => {
     }
 
     const byId = new Map(list.map((c) => [c.tweet_id, c]));
-    expect(byId.get("int-tweet-1")?.suggested_reply).toBe("integration test reply 1");
-    expect(byId.get("int-tweet-2")?.match_category).toBe("selected");
+    expect(byId.get(TWEET_ID_1)?.suggested_reply).toBe("integration test reply 1");
+    expect(byId.get(TWEET_ID_2)?.match_category).toBe("selected");
     // Server-managed fields must be present and look ISO-8601-ish.
     for (const c of list) {
       expect(c.status).toBe("pending");
@@ -165,21 +169,21 @@ describe("integration: agent-kit against real daemon", () => {
     // The daemon keys candidates by `tweet_id` (see packages/daemon/
     // src/server.ts — `state.candidates[input.tweet_id]`), so the
     // action endpoint expects the tweet_id as its path segment.
-    await client.postAction("int-tweet-1", "filled");
+    const TWEET_ID_1 = "1790000000000000001";
+    await client.postAction(TWEET_ID_1, "filled");
 
     const list = await client.getCandidates();
-    const updated = list.find((c) => c.tweet_id === "int-tweet-1");
+    const updated = list.find((c) => c.tweet_id === TWEET_ID_1);
     expect(updated?.status).toBe("filled");
   });
 
-  it("getConfig returns kb_dir from the running daemon", async () => {
+  it("getConfig returns kb_dir AND the bound port from the running daemon", async () => {
     const client = createDaemonClient(port);
     const cfg = await client.getConfig();
-    // Daemon's in-memory `state.port` is set only when `buildServer()`
-    // is called with `{port}` — which the production CLI does not do.
-    // It reports an empty port here; we still verify the other field
-    // the daemon does populate (kb_dir). A port-drift check lives in
-    // the daemon's own CP02 tests, not here.
+    // After the f1 syncPort fix, the daemon's in-memory state.port is
+    // updated by chooseAndBindPort via the syncPort decoration, so
+    // /config reflects the actual listening port — not undefined.
+    expect(cfg.port).toBe(port);
     expect(typeof cfg.kb_dir).toBe("string");
     expect(cfg.kb_dir.length).toBeGreaterThan(0);
   });

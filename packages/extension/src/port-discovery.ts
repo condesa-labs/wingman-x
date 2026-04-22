@@ -157,10 +157,25 @@ async function probe(
       method: "GET",
       signal: controller.signal,
     });
-    return res.ok;
+    if (!res.ok) return false;
+    const body = (await res.json().catch(() => null)) as unknown;
+    return isDaemonHealthBody(body);
   } catch {
     return false;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * A 2xx `/health` from an unrelated local service on 53827–53836 would
+ * poison the cache. We verify the body matches the daemon's contract
+ * (`{ status: "ok", version: string }` — see
+ * `packages/daemon/src/server.ts`'s `app.get("/health", ...)`). Any
+ * deviation — non-JSON, wrong shape, wrong `status` — fails the probe.
+ */
+function isDaemonHealthBody(body: unknown): boolean {
+  if (typeof body !== "object" || body === null) return false;
+  const rec = body as Record<string, unknown>;
+  return rec.status === "ok" && typeof rec.version === "string";
 }

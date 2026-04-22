@@ -34,6 +34,25 @@ export const ActionEnum = z.enum([
 export type Action = z.infer<typeof ActionEnum>;
 
 /**
+ * Tight validator for `tweet_url`: must be a twitter.com / x.com
+ * status URL. The popup passes this value directly to
+ * `chrome.tabs.create({url})`, so a loose `z.string().url()` would let a
+ * misbehaving or malicious local client turn an "Open" click into
+ * navigation to an arbitrary origin. Accepts:
+ *   https://(www\.)?(twitter|x)\.com/<handle>/status/<digits>(/...)?
+ */
+const TWEET_URL_RE =
+  /^https:\/\/(?:www\.)?(?:twitter|x)\.com\/[^/]+\/status\/\d+(?:[/?#].*)?$/;
+
+export const TweetUrlSchema = z
+  .string()
+  .url()
+  .refine((v) => TWEET_URL_RE.test(v), {
+    message:
+      "tweet_url must be an https://twitter.com or https://x.com /<handle>/status/<id> URL",
+  });
+
+/**
  * Incoming candidate — what the agent POSTs. Server-managed fields
  * (`status`, `status_updated_at`, `created_at`) are optional on input;
  * the server fills them in if omitted.
@@ -41,7 +60,7 @@ export type Action = z.infer<typeof ActionEnum>;
 export const CandidateInputSchema = z.object({
   id: z.string().min(1),
   tweet_id: z.string().min(1),
-  tweet_url: z.string().url(),
+  tweet_url: TweetUrlSchema,
   author_handle: z.string().min(1),
   tweet_text: z.string(),
   suggested_reply: z.string().min(1),

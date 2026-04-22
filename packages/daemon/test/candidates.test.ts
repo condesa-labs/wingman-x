@@ -100,6 +100,57 @@ describe("POST /candidates", () => {
 
     expect(res.statusCode).toBe(400);
   });
+
+  it("rejects tweet_url that is not a twitter.com/x.com /status/<id> URL", async () => {
+    // Security: tweet_url is later passed to chrome.tabs.create({url}),
+    // so a malicious local agent could turn "Open" into navigation to
+    // any origin unless the schema pins host+path.
+    app = await buildServer();
+
+    const badUrls = [
+      "https://evil.com/alice/status/1",
+      "https://twitter.com.evil.com/alice/status/1",
+      "http://twitter.com/alice/status/1", // http, not https
+      "https://twitter.com/alice/statuses/1", // wrong path prefix
+      "https://twitter.com/alice/status/abc", // non-numeric id
+    ];
+
+    for (const url of badUrls) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/candidates",
+        payload: {
+          candidates: [sampleCandidate({ tweet_url: url })],
+        },
+      });
+      expect(res.statusCode, `expected 400 for ${url}`).toBe(400);
+      expect(res.json().error).toBe("invalid_request");
+    }
+  });
+
+  it("accepts canonical twitter.com and x.com /status/<id> URLs", async () => {
+    app = await buildServer();
+
+    const goodUrls = [
+      "https://twitter.com/alice/status/1",
+      "https://www.twitter.com/alice/status/1",
+      "https://x.com/alice_ai/status/1790000000000000001",
+      "https://www.x.com/alice/status/1",
+      "https://twitter.com/alice/status/1?src=share",
+      "https://twitter.com/alice/status/1/photo/1",
+    ];
+
+    for (const url of goodUrls) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/candidates",
+        payload: {
+          candidates: [sampleCandidate({ tweet_id: `id-${url}`, tweet_url: url })],
+        },
+      });
+      expect(res.statusCode, `expected 200 for ${url}`).toBe(200);
+    }
+  });
 });
 
 describe("GET /suggestion", () => {
