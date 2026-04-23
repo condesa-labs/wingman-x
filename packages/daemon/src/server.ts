@@ -17,6 +17,8 @@ import {
   loadState,
   saveState,
 } from "./state.js";
+import { EventBus } from "./events.js";
+import { Readable } from "node:stream";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -160,6 +162,10 @@ export async function buildServer(
   // only ever MUTATE `state` (never reassign) so every handler and
   // `syncPort` below share the same object reference.
   const state = loadState();
+
+  // In-process event bus. The /events SSE route subscribes; POST
+  // handlers publish. Single-process Fastify = no distributed pubsub.
+  const events = new EventBus();
   if (options.port !== undefined) {
     state.port = options.port;
     // Don't save here — the main entrypoint saves state after a
@@ -192,11 +198,27 @@ export async function buildServer(
 
     const now = new Date().toISOString();
     let stored = 0;
+    // Track which incoming candidates are NEW (not already in state) —
+    // only those trigger candidate_added events. Re-POSTs / redrafts
+    // update suggested_reply without notifying; the pool already knew
+    // about that tweet_id.
+    const newlyAdded: Array<{
+      tweet_id: string;
+      author_handle: string;
+      match_category: "selected" | "topic" | "trending";
+    }> = [];
     for (const input of parsed.data.candidates) {
       const existing = state.candidates[input.tweet_id];
       const merged = mergeCandidate(existing, input, now);
       state.candidates[input.tweet_id] = merged;
       stored += 1;
+      if (existing === undefined) {
+        newlyAdded.push({
+          tweet_id: merged.tweet_id,
+          author_handle: merged.author_handle,
+          match_category: merged.match_category,
+        });
+      }
     }
 
     try {
@@ -206,7 +228,62 @@ export async function buildServer(
       return reply.code(500).send({ error: "persistence_failure" });
     }
 
+    // Publish AFTER successful persist so subscribers never see events
+    // for candidates that didn't actually survive to disk.
+    for (const nc of newlyAdded) {
+      events.publish({
+        type: "candidate_added",
+        tweet_id: nc.tweet_id,
+        author_handle: nc.author_handle,
+        match_category: nc.match_category,
+      });
+    }
+
     return { stored };
+  });
+
+  /**
+   * SSE endpoint for live candidate events.
+   *
+   * Clients (extension background SW, future dashboards) open an
+   * EventSource against this URL and receive `data: <json>\n\n` frames
+   * whenever a new candidate is added via POST /candidates.
+   *
+   * Heartbeat comment frames (":heartbeat\n\n") every 20s keep the
+   * connection alive through idle proxies and let the client detect a
+   * dead socket within one heartbeat interval. SSE comments (lines
+   * starting with ":") are not delivered to EventSource message
+   * handlers, so they don't pollute app-level events.
+   */
+  app.get("/events", async (req, reply) => {
+    reply.header("Content-Type", "text/event-stream");
+    reply.header("Cache-Control", "no-cache, no-transform");
+    reply.header("X-Accel-Buffering", "no");
+    // CORS headers are already applied by @fastify/cors's preHandler
+    // before this runs; the stream-send path below preserves them.
+
+    const stream = new Readable({ read() {} });
+
+    const unsubscribe = events.subscribe((frame) => stream.push(frame));
+
+    const heartbeat = setInterval(() => {
+      stream.push(":heartbeat\n\n");
+    }, 20_000);
+
+    // Tear down on client disconnect. Both `req.raw.close` (TCP close)
+    // and stream consumer pause paths converge here.
+    req.raw.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      stream.push(null);
+    });
+
+    // Initial frame so EventSource's `onopen` fires promptly. Comment
+    // line — not a `data:` frame — so it doesn't deliver a phantom
+    // message on connect.
+    stream.push(":ok\n\n");
+
+    return reply.send(stream);
   });
 
   app.get("/suggestion", async (req, reply) => {
