@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Twitter Helper</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="root" data-state="loading">
+      <!--
+        Four stacked states. `data-state` on <main> flips between
+        loading / list / empty / error via CSS attribute selectors.
+
+        CP03 shipped with `loading` / `empty` / `error`; CP08 extends
+        this with `list`, the populated list of candidate cards. The
+        empty-state copy is preserved verbatim so CP03's regression
+        test still passes.
+      -->
+      <section class="state state--loading" data-testid="loading-skeleton">
+        <div class="skeleton skeleton--block"></div>
+        <div class="skeleton skeleton--block"></div>
+        <div class="skeleton skeleton--block"></div>
+      </section>
+
+      <section class="state state--list" data-testid="twh-popup-list">
+        <div class="twh-popup-cards" data-testid="twh-popup-cards"></div>
+        <footer class="footer" data-testid="twh-popup-port-status"></footer>
+      </section>
+
+      <section class="state state--empty">
+        <p class="empty__message">No candidates yet — run your agent.</p>
+        <footer class="footer" data-testid="port-status"></footer>
+      </section>
+
+      <section
+        class="state state--error"
+        data-testid="twh-popup-error"
+      >
+        <p class="error__message">
+          Can't reach Twitter Helper daemon. Is it running?
+        </p>
+        <button
+          type="button"
+          class="error__retry"
+          data-testid="twh-popup-retry"
+        >
+          Retry
+        </button>
+      </section>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

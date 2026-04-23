@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Twitter Helper",
+  "version": "0.1.0",
+  "description": "Agent-agnostic semi-auto reply assistant for Twitter / X.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://twitter.com/*",
+    "https://x.com/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://twitter.com/*/status/*",
+        "https://x.com/*/status/*",
+        "http://localhost/*/status/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Twitter Helper"
+  }
+}

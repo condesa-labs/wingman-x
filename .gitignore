@@ -1,0 +1,16 @@
+.superpowers/
+node_modules/
+dist/
+build/
+coverage/
+test-results/
+playwright-report/
+.DS_Store
+*.log
+.env
+.env.local
+.harness/*/
+!.harness/retro/
+!.harness/retro/**
+!.harness/config.json
+.review-loop/

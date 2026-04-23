@@ -1,0 +1,24 @@
+{
+  "name": "@twitter-helper/extension",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Chrome MV3 extension — agent-agnostic Twitter reply helper.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsx scripts/copy-assets.ts",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:e2e": "playwright test --config=playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@twitter-helper/agent-kit": "*",
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^22.10.2",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

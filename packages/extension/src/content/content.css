@@ -1,0 +1,226 @@
+/*
+ * Dock widget styles (CP05).
+ *
+ * Registered via manifest `content_scripts[].css` so the styles load
+ * before the content JS mounts the Dock. External stylesheets from
+ * MV3 content scripts run in the isolated world and are allowed by
+ * Twitter's Content Security Policy (inline <style> would also work
+ * for MV3, but the manifest form is the documented CSP-safe path).
+ *
+ * Selectors are scoped to #twh-dock with high specificity to avoid
+ * colliding with Twitter's own styles when we ship against the real
+ * site.
+ */
+
+#twh-dock {
+  position: fixed;
+  z-index: 2147483600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #15202b;
+  color: #f7f9f9;
+  border: 1px solid #38444d;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  user-select: none;
+}
+
+#twh-dock.twh-dock-default {
+  top: 96px;
+  right: 16px;
+}
+
+#twh-dock .twh-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 28px;
+  padding: 0 4px;
+  font-size: 14px;
+  color: #8899a6;
+  cursor: grab;
+  letter-spacing: -1px;
+}
+
+#twh-dock .twh-handle:active {
+  cursor: grabbing;
+}
+
+#twh-dock button.twh-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#twh-dock button.twh-action:hover {
+  background: rgba(239, 243, 244, 0.1);
+}
+
+#twh-dock button.twh-action.twh-primary {
+  background: #1d9bf0;
+  color: #fff;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18);
+}
+
+#twh-dock button.twh-action.twh-primary:hover {
+  background: #1a8cd8;
+}
+
+/*
+ * ------- Card widget (CP07) ---------------------------------------------
+ *
+ * Structured as header / body / footer so the drag handle (header) is
+ * visually distinct from the content region (body) and the action row
+ * (footer). The whole header is a drag surface — the ⋮⋮ grip only
+ * advertises the affordance.
+ */
+
+#twh-card {
+  position: fixed;
+  z-index: 2147483600;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  background: #15202b;
+  color: #f7f9f9;
+  border: 1px solid #38444d;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.36);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Both shapes animate via opacity + scale. Kept well under 250 ms. */
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+  user-select: none;
+}
+
+#twh-card.twh-card-default {
+  top: 96px;
+  right: 16px;
+}
+
+#twh-card .twh-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #253341;
+  cursor: grab;
+}
+
+#twh-card .twh-card-header:active {
+  cursor: grabbing;
+}
+
+#twh-card .twh-card-grip {
+  color: #8899a6;
+  letter-spacing: -1px;
+  font-size: 14px;
+}
+
+#twh-card .twh-card-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e7e9ea;
+}
+
+#twh-card .twh-card-body {
+  padding: 10px 12px 12px;
+  user-select: text;
+  cursor: default;
+}
+
+#twh-card .twh-card-match-reason {
+  font-size: 12px;
+  color: #8899a6;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#twh-card .twh-card-reply-preview {
+  font-size: 14px;
+  line-height: 1.45;
+  color: #f7f9f9;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#twh-card .twh-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid #253341;
+}
+
+#twh-card button.twh-card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#twh-card button.twh-card-action:hover {
+  background: rgba(239, 243, 244, 0.1);
+}
+
+#twh-card button.twh-card-primary {
+  background: #1d9bf0;
+  color: #fff;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18);
+}
+
+#twh-card button.twh-card-primary:hover {
+  background: #1a8cd8;
+}
+
+#twh-card button.twh-card-collapse {
+  margin-left: auto;
+  background: transparent;
+}
+
+/* Dock enter animation symmetric with the Card (reused on collapse). */
+#twh-dock {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+#twh-dock.twh-enter,
+#twh-card.twh-enter {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+#twh-dock.twh-enter-active,
+#twh-card.twh-enter-active {
+  opacity: 1;
+  transform: scale(1);
+}

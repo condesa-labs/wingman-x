@@ -1,0 +1,26 @@
+{
+  "name": "@twitter-helper/daemon",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local companion daemon for Chrome Twitter Helper.",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx bin/dev.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --coverage",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "fastify": "^5.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^2.1.8",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
