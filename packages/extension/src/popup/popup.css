@@ -162,6 +162,31 @@ html, body {
 }
 .footer:empty { display: none; }
 
+/* ----- settings (list state) ---------------------------------------- */
+
+.settings {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.settings__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings__checkbox {
+  margin: 0;
+  cursor: pointer;
+}
+
+.settings__label { flex: 1; }
+
 /* ----- error state --------------------------------------------------- */
 
 .state--error {
