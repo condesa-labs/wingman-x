@@ -1,7 +1,7 @@
 {
   "name": "chrome-twitter-helper",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Chrome extension + local companion daemon for agent-generated, voice-matched Twitter replies",
   "workspaces": [
     "packages/daemon",
@@ -15,6 +15,11 @@
   "scripts": {
     "test": "npm -ws --if-present run test",
     "typecheck": "npm -ws --if-present run typecheck",
-    "build": "npm -ws --if-present run build"
+    "build": "npm run bump:patch && npm -ws --if-present run build",
+    "build:no-bump": "npm -ws --if-present run build",
+    "bump:patch": "node scripts/bump-version.mjs patch",
+    "bump:minor": "node scripts/bump-version.mjs minor",
+    "bump:major": "node scripts/bump-version.mjs major",
+    "bump:sync": "node scripts/bump-version.mjs sync"
   }
 }

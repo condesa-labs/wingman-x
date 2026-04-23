@@ -27,10 +27,40 @@ import {
   type PopupCandidate,
 } from "./daemon-client.js";
 import { renderCard } from "./candidate-card.js";
+import { isActiveCandidate } from "../candidate-filter.js";
+import { getSettings, setSettings } from "./settings.js";
 
 type RootState = "loading" | "list" | "empty" | "error";
 
 const LOG_PREFIX = "[twitter-helper]";
+
+/**
+ * Session-storage key for the id of the last helper tab we opened.
+ * Used to implement the singleton-tab UX: the next Open click reuses
+ * this tab via `chrome.tabs.update` instead of creating a new one, so
+ * helper tabs don't accumulate across sessions. The id is cleared
+ * implicitly when the browser closes (storage.session scope).
+ */
+const LAST_TAB_KEY = "last_helper_tab_id";
+
+async function getLastHelperTabId(): Promise<number | null> {
+  try {
+    const entry = await chrome.storage.session.get(LAST_TAB_KEY);
+    const id = entry[LAST_TAB_KEY];
+    return typeof id === "number" ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setLastHelperTabId(tabId: number): Promise<void> {
+  try {
+    await chrome.storage.session.set({ [LAST_TAB_KEY]: tabId });
+  } catch {
+    // Fail-soft: losing the stored id just means the next click opens
+    // a fresh tab instead of reusing one. No user-visible breakage.
+  }
+}
 
 function setState(state: RootState): void {
   const root = document.querySelector<HTMLElement>(".root");
@@ -57,17 +87,85 @@ function clearCards(container: HTMLElement): void {
 }
 
 /**
- * Open the given URL in a new active tab. `chrome.tabs.create` is
- * available to popups without the `"tabs"` permission — only
- * URL/Title/etc. readers require that permission. We AWAIT the promise
- * before closing the popup: if we `window.close()` synchronously after
- * the call, Chrome may cancel the pending tab creation with the popup's
- * own destruction, which was observed flaking the E2E's "new tab opens"
- * assertion under a fully-seeded daemon.
+ * Tab-reuse Open: three-tier lookup so clicking Open repeatedly doesn't
+ * explode your tab count.
+ *
+ * Tier 1 — `chrome.storage.session.last_helper_tab_id`: the id of the
+ *          tab a previous popup click used. Fast path when the user
+ *          hasn't closed that tab. Fails-through on stale id (tab
+ *          closed / gone to a different window / browser restarted
+ *          but session survived).
+ *
+ * Tier 2 — `chrome.tabs.query({url: [twitter, x]})`: any open Twitter /
+ *          X tab in any window. Pick the most-recently-accessed to
+ *          match the user's mental "the Twitter tab I was just on."
+ *          Covers the common case where the stored id went stale
+ *          because the user closed the helper tab after tweeting.
+ *
+ * Tier 3 — `chrome.tabs.create`: no Twitter tab anywhere; spawn a
+ *          fresh one. This is the only path that grows the tab count.
+ *
+ * Gate: `settings.reuseTab` (default true). When false, skip tiers 1-2
+ * and always Tier-3, preserving the pre-refactor behaviour for users
+ * who prefer the per-click new-tab semantics.
+ *
+ * We AWAIT the chrome.* call before `window.close()` — closing the
+ * popup synchronously was previously observed to cancel pending tab
+ * operations in-flight (CP10 E2E flake).
  */
-async function openInNewTab(url: string): Promise<void> {
+async function openInTab(url: string): Promise<void> {
+  const settings = await getSettings();
+
+  if (settings.reuseTab) {
+    // Tier 1: stored id.
+    const storedId = await getLastHelperTabId();
+    if (storedId !== null) {
+      try {
+        await chrome.tabs.update(storedId, { url, active: true });
+        await focusTabWindow(storedId);
+        window.close();
+        return;
+      } catch {
+        // Stored id is stale (tab closed). Fall through.
+      }
+    }
+
+    // Tier 2: any open twitter.com / x.com tab.
+    try {
+      const tabs = await chrome.tabs.query({
+        url: ["https://twitter.com/*", "https://x.com/*"],
+      });
+      if (tabs.length > 0) {
+        // Prefer most-recently-accessed. `lastAccessed` was added in
+        // Chrome 121; older Chromes leave it undefined — those fall
+        // back to query order, which is close enough.
+        const sorted = [...tabs].sort(
+          (a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0),
+        );
+        const target = sorted[0];
+        if (target !== undefined && typeof target.id === "number") {
+          await chrome.tabs.update(target.id, { url, active: true });
+          if (typeof target.windowId === "number") {
+            await chrome.windows
+              .update(target.windowId, { focused: true })
+              .catch(() => {});
+          }
+          await setLastHelperTabId(target.id);
+          window.close();
+          return;
+        }
+      }
+    } catch {
+      // `tabs` permission might be missing on older profiles. Fall through.
+    }
+  }
+
+  // Tier 3: create fresh (or toggle is off).
   try {
-    await chrome.tabs.create({ url, active: true });
+    const created = await chrome.tabs.create({ url, active: true });
+    if (typeof created.id === "number") {
+      await setLastHelperTabId(created.id);
+    }
   } catch (err) {
     console.info(
       `${LOG_PREFIX} chrome.tabs.create failed: ${
@@ -76,6 +174,18 @@ async function openInNewTab(url: string): Promise<void> {
     );
   }
   window.close();
+}
+
+/** Bring the host window for a tab to the foreground, best-effort. */
+async function focusTabWindow(tabId: number): Promise<void> {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (typeof tab.windowId === "number") {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
+  } catch {
+    // Tab might have been closed between update and get; no-op.
+  }
 }
 
 /**
@@ -88,13 +198,13 @@ function renderList(
   container: HTMLElement,
 ): boolean {
   clearCards(container);
-  const active = candidates.filter((c) => c.status !== "dismissed");
+  const active = candidates.filter(isActiveCandidate);
   if (active.length === 0) return false;
 
   for (const candidate of active) {
     const card = renderCard(candidate, {
       onOpen: (c) => {
-        void openInNewTab(c.tweet_url);
+        void openInTab(c.tweet_url);
       },
       onDismiss: (c) => handleDismiss(c, port, container),
     });
@@ -116,8 +226,15 @@ function handleDismiss(
   );
   card?.remove();
 
-  // Fire-and-forget the POST.
+  // Fire-and-forget the POST + ask the background worker to refresh
+  // the badge count. Without the refresh, the badge stays stale until
+  // the next 3-minute alarm tick — visible drift on a dismiss the
+  // user just performed.
   void postDismiss(port, candidate.tweet_id);
+  chrome.runtime.sendMessage({ type: "refresh_candidates" }, () => {
+    // Swallow chrome.runtime.lastError: the ack is optional.
+    void chrome.runtime.lastError;
+  });
 
   // If the list is now empty, switch to the empty-state panel so the
   // user sees the "run your agent" copy rather than a blank list.
@@ -211,7 +328,25 @@ function wireRetry(): void {
   });
 }
 
+/**
+ * Wire the "Reuse existing Twitter tab" checkbox: reflect the current
+ * setting on popup open + write through on change. Fire-and-forget —
+ * a slow `chrome.storage.local.set` must not block the click.
+ */
+async function wireReuseTabToggle(): Promise<void> {
+  const toggle = document.querySelector<HTMLInputElement>(
+    "[data-testid='twh-reuse-tab-toggle']",
+  );
+  if (toggle === null) return;
+  const current = await getSettings();
+  toggle.checked = current.reuseTab;
+  toggle.addEventListener("change", () => {
+    void setSettings({ reuseTab: toggle.checked });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   wireRetry();
+  void wireReuseTabToggle();
   void runFlow();
 });

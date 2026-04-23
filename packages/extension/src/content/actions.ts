@@ -74,6 +74,28 @@ export interface ActionContext {
 }
 
 /**
+ * Ask the background worker to re-fetch `/candidates` and repaint the
+ * badge. Sent after any mutating action (fill / dismiss) so the count
+ * reflects the user's latest intent instead of waiting for the
+ * 3-minute alarm tick. Fire-and-forget — the ack is ignored and any
+ * transport error is swallowed (the badge is cosmetic, never
+ * load-bearing).
+ */
+function requestBadgeRefresh(): void {
+  try {
+    chrome.runtime.sendMessage({ type: "refresh_candidates" }, () => {
+      // Drain `chrome.runtime.lastError` to silence "unchecked runtime
+      // error" warnings when the SW is not listening.
+      void chrome.runtime.lastError;
+    });
+  } catch {
+    // sendMessage throws synchronously if `chrome.runtime` is detached
+    // (rare — extension reload mid-action). Nothing to do; the alarm
+    // poll will catch up within 3 min.
+  }
+}
+
+/**
  * POST /candidates/:id/action with the given status. Failures log
  * `console.info`, never `console.error`.
  */
@@ -115,6 +137,19 @@ export async function handleAction(
       if (ok && ctx.port !== null) {
         await postAction(ctx.port, ctx.tweetId, "filled");
       }
+      if (ok) {
+        // Symmetry with popup: a `filled` candidate is terminal from
+        // the helper's perspective (the user has the reply they asked
+        // for; whether they press Tweet is purely X-side). Teardown
+        // the on-page widget so the user isn't staring at a dock for
+        // a candidate that's already out of the popup list.
+        if (ctx.onDismiss !== undefined) {
+          ctx.onDismiss();
+        } else {
+          unmountDock();
+        }
+        requestBadgeRefresh();
+      }
       return;
     }
     case "dismiss": {
@@ -132,6 +167,7 @@ export async function handleAction(
       } else {
         unmountDock();
       }
+      requestBadgeRefresh();
       return;
     }
     case "regen": {

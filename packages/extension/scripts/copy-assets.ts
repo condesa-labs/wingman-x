@@ -36,6 +36,8 @@ const STATIC_ASSETS: ReadonlyArray<{ from: string; to: string }> = [
   { from: "popup/popup.css", to: "popup.css" },
   // CP05: content-script stylesheet, referenced by manifest.content_scripts[].css
   { from: "content/content.css", to: "content.css" },
+  // D2b: notification icon referenced by chrome.notifications.create iconUrl.
+  { from: "notification-icon.png", to: "notification-icon.png" },
 ];
 
 // Flatten popup JS paths after tsc emits them (tsc keeps the src
@@ -181,6 +183,38 @@ function bundleContentScript(): void {
   rmSync(distContentDir, { recursive: true, force: true });
 }
 
+/**
+ * Read the root `package.json` version and write it into
+ * `dist/manifest.json`. Fails loudly on missing inputs so a broken
+ * version setup never ships as a silently-stale manifest.
+ */
+function syncManifestVersion(): void {
+  const rootPkgPath = resolve(pkgRoot, "..", "..", "package.json");
+  const manifestPath = join(distDir, "manifest.json");
+  if (!existsSync(rootPkgPath)) {
+    throw new Error(`root package.json not found at ${rootPkgPath}`);
+  }
+  if (!existsSync(manifestPath)) {
+    throw new Error(`dist manifest.json not found at ${manifestPath}`);
+  }
+  const rootPkg = JSON.parse(readFileSync(rootPkgPath, "utf8")) as {
+    version?: unknown;
+  };
+  if (typeof rootPkg.version !== "string") {
+    throw new Error(
+      `root package.json has no string version field — got ${typeof rootPkg.version}`,
+    );
+  }
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  manifest.version = rootPkg.version;
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  // eslint-disable-next-line no-console -- build-time one-shot log
+  console.log(`[extension/build] manifest version -> ${rootPkg.version}`);
+}
+
 function main(): void {
   if (!existsSync(distDir)) {
     throw new Error(`dist/ does not exist — did tsc run first? ${distDir}`);
@@ -216,16 +250,19 @@ function main(): void {
   }
 
   // 1b) Rewrite parent-relative imports that targeted `src/` root files
-  //     (e.g. `daemon-shape.js`) — after flatten those files are
-  //     siblings, so the import must be current-directory relative.
+  //     (e.g. `daemon-shape.js`, `candidate-filter.js`) — after flatten
+  //     those files are siblings, so the import must be current-directory
+  //     relative. We generalise to any `../<name>.js` because every
+  //     popup source that reaches out to `src/` root lands at `dist/`
+  //     root after flatten; keeping the list explicit would require a
+  //     copy-assets patch every time popup imports a new shared module.
+  const PARENT_JS_IMPORT_RE =
+    /from\s+"\.\.\/([A-Za-z0-9_-]+\.js)"/g;
   for (const entry of readdirSync(distDir)) {
     if (!entry.endsWith(".js")) continue;
     const abs = join(distDir, entry);
     const original = readFileSync(abs, "utf8");
-    const rewritten = original.replace(
-      /from\s+"\.\.\/daemon-shape\.js"/g,
-      'from "./daemon-shape.js"',
-    );
+    const rewritten = original.replace(PARENT_JS_IMPORT_RE, 'from "./$1"');
     if (rewritten !== original) {
       writeFileSync(abs, rewritten, "utf8");
     }
@@ -238,6 +275,14 @@ function main(): void {
   for (const asset of STATIC_ASSETS) {
     copyIfExists(join(srcDir, asset.from), join(distDir, asset.to));
   }
+
+  // 3b) Inject the root package.json version into dist/manifest.json.
+  //     The source `src/manifest.json` stays pinned at 0.1.0 to avoid
+  //     two competing version sources; the built artefact is what
+  //     Chrome loads, so that is where the version must be current.
+  //     `scripts/bump-version.mjs` is the sole writer of root
+  //     package.json version, so this injection is always synced.
+  syncManifestVersion();
 
   // 4) Report the final dist tree for operator visibility.
   const files = listJsFiles(distDir).map((f) => f.replace(pkgRoot + "/", ""));
