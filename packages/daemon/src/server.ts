@@ -68,19 +68,25 @@ export const DAEMON_HEADER = "x-twitter-helper-daemon";
 const CHROME_EXT_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 
 /**
- * Parse `TWITTER_HELPER_EXT_ALLOWED_IDS` (comma-separated). When set,
- * the daemon only echoes ACAO for `chrome-extension://` origins whose
- * ID is in the list — closing the peer's f4 concern that "every
- * installed extension passes the format check". When unset, any
- * canonical 32-char [a-p] ID is accepted, preserving unpacked-dev
- * flexibility (unpacked IDs change across machines/workspaces).
+ * Parse `TWITTER_HELPER_EXT_ALLOWED_IDS` (comma-separated). Return
+ * value distinguishes three states:
+ *
+ *   - `undefined` → env var was never set. Dev default: any canonical
+ *     32-char [a-p] chrome-extension:// ID is accepted. Preserves
+ *     unpacked-dev flexibility (unpacked IDs vary per machine).
+ *   - `Set<string>` (possibly empty) → env var was explicitly set.
+ *     Daemon ONLY echoes ACAO for extension IDs in the set. An
+ *     **empty** set (env var = `""` or whitespace) means REJECT ALL
+ *     chrome-extension origins — fail-closed on config mistakes
+ *     like a blank-but-present secret, a templating glitch, or an
+ *     un-expanded env reference (review-loop final-consensus-v5).
  *
  * Production deployments should set this to the single Chrome Web
- * Store ID once the extension ships. Dev workflows leave it unset.
+ * Store ID once the extension ships.
  */
-function extAllowList(): ReadonlySet<string> | null {
+function extAllowList(): ReadonlySet<string> | undefined {
   const raw = process.env.TWITTER_HELPER_EXT_ALLOWED_IDS;
-  if (!raw || raw.trim().length === 0) return null;
+  if (raw === undefined) return undefined;
   return new Set(
     raw
       .split(",")
@@ -116,12 +122,14 @@ export async function buildServer(
         return cb(null, true);
       }
       if (CHROME_EXT_ORIGIN.test(origin)) {
-        // When TWITTER_HELPER_EXT_ALLOWED_IDS is set, pin to that
-        // specific list; otherwise allow any canonical extension ID
-        // for dev convenience. The pinning option is the mitigation
-        // for f4's "every installed extension passes" class of attack.
+        // Three states for TWITTER_HELPER_EXT_ALLOWED_IDS:
+        //   - undefined (unset) → dev default, accept any canonical ID.
+        //   - non-empty Set     → pin, accept only listed IDs.
+        //   - empty Set         → fail-closed, reject all extensions
+        //                         (env was set but empty — probably a
+        //                         config/templating mistake).
         const allow = extAllowList();
-        if (allow === null) return cb(null, true);
+        if (allow === undefined) return cb(null, true);
         const id = origin.substring("chrome-extension://".length);
         return cb(null, allow.has(id));
       }

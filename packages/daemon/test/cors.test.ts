@@ -270,6 +270,32 @@ describe("CORS preflight", () => {
       expect(res.headers["access-control-allow-origin"]).toBeUndefined();
     });
 
+    it("fails closed on set-but-empty env var (defensive against config mistakes)", async () => {
+      // Final-consensus-v5 finding: an empty/whitespace value should
+      // NOT degrade to the dev-default "accept any canonical ID"
+      // path; that would silently disable pinning if a secret expands
+      // to "" or a template fails to render. Instead, reject all
+      // chrome-extension origins.
+      for (const emptyValue of ["", "   ", ",  ,", ","]) {
+        process.env.TWITTER_HELPER_EXT_ALLOWED_IDS = emptyValue;
+        app = await buildServer();
+        const res = await app.inject({
+          method: "OPTIONS",
+          url: "/candidates",
+          headers: {
+            origin: "chrome-extension://abcdefghijklmnopabcdefghijklmnop",
+            "access-control-request-method": "POST",
+          },
+        });
+        expect(
+          res.headers["access-control-allow-origin"],
+          `emptyValue=${JSON.stringify(emptyValue)}`,
+        ).toBeUndefined();
+        await app.close();
+        app = undefined;
+      }
+    });
+
     it("still honors twitter.com / x.com / localhost content-script origins regardless of pinning", async () => {
       process.env.TWITTER_HELPER_EXT_ALLOWED_IDS = "abcdefghijklmnopabcdefghijklmnop";
       app = await buildServer();
