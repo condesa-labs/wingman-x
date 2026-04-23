@@ -103,3 +103,27 @@ export function isDaemonSuggestionResponse(
   if (!isDaemonCandidate(body)) return false;
   return (body as { tweet_id: string }).tweet_id === expectedTweetId;
 }
+
+/**
+ * Header the daemon stamps on every response so callers can tell us
+ * apart from any co-located service that happens to be listening on
+ * the daemon's auto-bumped port range (review-loop f14). Closes the
+ * 404-false-negative gap that body-shape validation alone leaves
+ * open — the header is present on ALL response statuses.
+ *
+ * Must match `DAEMON_HEADER` exported from
+ * `packages/daemon/src/server.ts`.
+ */
+export const DAEMON_IDENTITY_HEADER = "x-twitter-helper-daemon";
+
+/**
+ * Verify the response carries the daemon identity header. Callers
+ * treat a missing/empty header as a stale-cache signal and drive an
+ * `invalidate_port` + retry pass — which catches 404, 5xx, and any
+ * other status a squatter might return, not just 200 with the wrong
+ * body shape.
+ */
+export function hasDaemonIdentityHeader(res: Response): boolean {
+  const value = res.headers.get(DAEMON_IDENTITY_HEADER);
+  return typeof value === "string" && value.length > 0;
+}

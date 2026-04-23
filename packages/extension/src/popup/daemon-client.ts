@@ -14,7 +14,10 @@
  * route. Going through the worker keeps the popup idle while the scan
  * runs and avoids duplicate rescans if both sides race.
  */
-import { isDaemonCandidatesListResponse } from "../daemon-shape.js";
+import {
+  hasDaemonIdentityHeader,
+  isDaemonCandidatesListResponse,
+} from "../daemon-shape.js";
 export interface PopupCandidate {
   id: string;
   tweet_id: string;
@@ -130,6 +133,14 @@ export async function fetchCandidates(
     method: "GET",
     headers: { accept: "application/json" },
   });
+  // Daemon identity check FIRST — uniform across status codes, catches
+  // squatters that return 404 / 5xx (review-loop f14). Body-shape
+  // validation below is belt-and-suspenders for daemon API drift.
+  if (!hasDaemonIdentityHeader(res)) {
+    throw new Error(
+      `GET /candidates missing daemon identity header — cached port ${port} likely stale`,
+    );
+  }
   if (!res.ok) {
     throw new Error(`GET /candidates returned ${res.status}`);
   }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  DAEMON_IDENTITY_HEADER,
+  hasDaemonIdentityHeader,
   isDaemonCandidate,
   isDaemonCandidatesListResponse,
   isDaemonSuggestionResponse,
@@ -149,5 +151,40 @@ describe("isDaemonSuggestionResponse", () => {
     expect(isDaemonSuggestionResponse(null, "1")).toBe(false);
     expect(isDaemonSuggestionResponse({}, "1")).toBe(false);
     expect(isDaemonSuggestionResponse("string", "1")).toBe(false);
+  });
+});
+
+describe("hasDaemonIdentityHeader (review-loop f14)", () => {
+  it("accepts a Response whose header carries any non-empty value", () => {
+    const res = new Response(null, {
+      status: 200,
+      headers: { [DAEMON_IDENTITY_HEADER]: "0.1.0" },
+    });
+    expect(hasDaemonIdentityHeader(res)).toBe(true);
+  });
+
+  it("works across status codes — 404 with header passes", () => {
+    const res = new Response(null, {
+      status: 404,
+      headers: { [DAEMON_IDENTITY_HEADER]: "0.1.0" },
+    });
+    expect(hasDaemonIdentityHeader(res)).toBe(true);
+  });
+
+  it("rejects a Response that omits the header", () => {
+    const res = new Response(null, { status: 200 });
+    expect(hasDaemonIdentityHeader(res)).toBe(false);
+  });
+
+  it("rejects a Response whose header is empty", () => {
+    const res = new Response(null, {
+      status: 200,
+      headers: { [DAEMON_IDENTITY_HEADER]: "" },
+    });
+    expect(hasDaemonIdentityHeader(res)).toBe(false);
+  });
+
+  it("uses the exact header name the daemon writes", () => {
+    expect(DAEMON_IDENTITY_HEADER).toBe("x-twitter-helper-daemon");
   });
 });

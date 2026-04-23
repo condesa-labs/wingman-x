@@ -31,7 +31,10 @@ import {
   createWidgetController,
   type WidgetController,
 } from "./transitions.js";
-import { isDaemonSuggestionResponse } from "../daemon-shape.js";
+import {
+  hasDaemonIdentityHeader,
+  isDaemonSuggestionResponse,
+} from "../daemon-shape.js";
 
 const LOG_PREFIX = "[twitter-helper]";
 
@@ -179,13 +182,16 @@ async function runOnce(): Promise<void> {
     return;
   }
 
-  // Fetch with stale-port recovery: on transport failure, assume the
-  // cached port is stale (daemon restarted onto a different port),
-  // ask the worker to rescan, and retry ONCE against the fresh port.
+  // Fetch with stale-port recovery: on transport failure OR any
+  // response that lacks the daemon identity header, assume the cached
+  // port is stale (daemon restarted, or a co-located service is
+  // squatting), ask the worker to rescan, and retry ONCE against the
+  // fresh port. The header check catches 404 / 5xx squatters that
+  // body-shape validation alone wouldn't (review-loop f14).
   let port = firstPort;
   let res: Response | null = await tryFetchSuggestion(port, tweetId, signal);
   if (signal.aborted) return;
-  if (res === null) {
+  if (res === null || !hasDaemonIdentityHeader(res)) {
     const fresh = (await requestInvalidatePort()).port;
     if (signal.aborted) return;
     if (fresh === null) {
@@ -195,7 +201,7 @@ async function runOnce(): Promise<void> {
     port = fresh;
     res = await tryFetchSuggestion(port, tweetId, signal);
     if (signal.aborted) return;
-    if (res === null) {
+    if (res === null || !hasDaemonIdentityHeader(res)) {
       console.warn(
         `${LOG_PREFIX} /suggestion fetch failed for ${tweetId} even after port invalidate`,
       );

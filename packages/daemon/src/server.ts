@@ -47,12 +47,38 @@ export interface BuildServerOptions {
 }
 
 /**
- * Matches `chrome-extension://<id>` — Chrome extension ids are 32
- * lowercase letters in production but unpacked ids are often shorter /
- * include digits, so we allow `[a-z0-9]+` to cover both.
+ * Every response carries this header so callers on the same machine
+ * can distinguish us from a co-located service squatting on the
+ * daemon's auto-bumped port range (review-loop f14). The header is
+ * exposed via CORS `exposedHeaders` so browser JS can read it
+ * regardless of which endpoint or status code returned.
  */
-const CHROME_EXT_ORIGIN = /^chrome-extension:\/\/[a-z0-9]+$/i;
-const LOCALHOST_ORIGIN = /^http:\/\/localhost(:\d+)?$/i;
+export const DAEMON_HEADER = "x-twitter-helper-daemon";
+
+/**
+ * Matches `chrome-extension://<id>` — Chrome production / unpacked
+ * extension IDs are ALWAYS 32 characters in the `[a-p]` alphabet
+ * (computed from a SHA-256 hash of the extension's key, folded to
+ * 4 bits per character). Tightening from the previous `[a-z0-9]+`
+ * match closes the "any chrome-extension" vector (review-loop f4)
+ * without breaking unpacked-extension dev because unpacked IDs use
+ * the same ID-format contract.
+ */
+const CHROME_EXT_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
+
+/**
+ * Content-scripts inherit their host page's origin for CORS, so the
+ * daemon must also allow the pages the extension is active on:
+ * production twitter.com / x.com and E2E-test localhost fixtures.
+ * (Extension contexts — popup, background — are covered by
+ * CHROME_EXT_ORIGIN above.) The old regex `/^http:\/\/localhost/` was
+ * reviewed in f4; narrowing to ONLY localhost still permitted any
+ * local web app to hit the daemon via browser CORS. The production
+ * tweet origins don't expand attack surface meaningfully — any script
+ * running on twitter.com can already fetch anything the user can.
+ */
+const CONTENT_SCRIPT_PAGE_ORIGIN =
+  /^(?:https:\/\/(?:www\.)?(?:twitter|x)\.com|http:\/\/localhost(?::\d+)?)$/i;
 
 export async function buildServer(
   options: BuildServerOptions = {},
@@ -63,7 +89,10 @@ export async function buildServer(
     origin: (origin, cb) => {
       // Same-origin or tools like curl send no Origin → allow.
       if (!origin) return cb(null, true);
-      if (CHROME_EXT_ORIGIN.test(origin) || LOCALHOST_ORIGIN.test(origin)) {
+      if (
+        CHROME_EXT_ORIGIN.test(origin) ||
+        CONTENT_SCRIPT_PAGE_ORIGIN.test(origin)
+      ) {
         return cb(null, true);
       }
       // Fail-soft: do NOT throw, just return false so the response lacks
@@ -73,9 +102,19 @@ export async function buildServer(
     },
     methods: ["GET", "POST", "PUT", "OPTIONS"],
     allowedHeaders: ["content-type"],
+    exposedHeaders: [DAEMON_HEADER],
     credentials: false,
     preflightContinue: false,
     optionsSuccessStatus: 204,
+  });
+
+  // Stamp every response — including errors and 4xx/5xx — with the
+  // daemon-identity header. This lets clients detect stale-cache
+  // scenarios (another local service squatting on our port) uniformly,
+  // regardless of status code (review-loop f14).
+  app.addHook("onSend", async (_req, reply, payload) => {
+    reply.header(DAEMON_HEADER, pkg.version);
+    return payload;
   });
 
   // Load persisted state once at build time. All mutation methods below

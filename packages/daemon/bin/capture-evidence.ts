@@ -156,12 +156,13 @@ await capture("get-config", {
   url: "/config",
 });
 
-// 8. OPTIONS preflight
+// 8. OPTIONS preflight — uses the canonical 32-char [a-p] Chrome
+//    extension ID format that the daemon accepts (review-loop f4).
 await capture("options-preflight", {
   method: "OPTIONS",
   url: "/candidates",
   headers: {
-    origin: "chrome-extension://test",
+    origin: "chrome-extension://abcdefghijklmnopabcdefghijklmnop",
     "access-control-request-method": "POST",
     "access-control-request-headers": "content-type",
   },
