@@ -56,15 +56,38 @@ export interface BuildServerOptions {
 export const DAEMON_HEADER = "x-twitter-helper-daemon";
 
 /**
- * Matches `chrome-extension://<id>` — Chrome production / unpacked
- * extension IDs are ALWAYS 32 characters in the `[a-p]` alphabet
- * (computed from a SHA-256 hash of the extension's key, folded to
- * 4 bits per character). Tightening from the previous `[a-z0-9]+`
- * match closes the "any chrome-extension" vector (review-loop f4)
- * without breaking unpacked-extension dev because unpacked IDs use
- * the same ID-format contract.
+ * Matches the canonical `chrome-extension://<id>` format. Chrome
+ * production / unpacked extension IDs are always 32 characters in the
+ * `[a-p]` alphabet (derived from a SHA-256 hash of the extension's
+ * key, folded to 4 bits per character). By itself, this regex only
+ * rejects syntactically-invalid origins — any INSTALLED extension
+ * with localhost host permissions would pass. See `extAllowList()`
+ * below for the environment-variable-driven ID pinning that closes
+ * the "trust any chrome-extension" gap in review-loop f4.
  */
 const CHROME_EXT_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
+
+/**
+ * Parse `TWITTER_HELPER_EXT_ALLOWED_IDS` (comma-separated). When set,
+ * the daemon only echoes ACAO for `chrome-extension://` origins whose
+ * ID is in the list — closing the peer's f4 concern that "every
+ * installed extension passes the format check". When unset, any
+ * canonical 32-char [a-p] ID is accepted, preserving unpacked-dev
+ * flexibility (unpacked IDs change across machines/workspaces).
+ *
+ * Production deployments should set this to the single Chrome Web
+ * Store ID once the extension ships. Dev workflows leave it unset.
+ */
+function extAllowList(): ReadonlySet<string> | null {
+  const raw = process.env.TWITTER_HELPER_EXT_ALLOWED_IDS;
+  if (!raw || raw.trim().length === 0) return null;
+  return new Set(
+    raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+}
 
 /**
  * Content-scripts inherit their host page's origin for CORS, so the
@@ -89,11 +112,18 @@ export async function buildServer(
     origin: (origin, cb) => {
       // Same-origin or tools like curl send no Origin → allow.
       if (!origin) return cb(null, true);
-      if (
-        CHROME_EXT_ORIGIN.test(origin) ||
-        CONTENT_SCRIPT_PAGE_ORIGIN.test(origin)
-      ) {
+      if (CONTENT_SCRIPT_PAGE_ORIGIN.test(origin)) {
         return cb(null, true);
+      }
+      if (CHROME_EXT_ORIGIN.test(origin)) {
+        // When TWITTER_HELPER_EXT_ALLOWED_IDS is set, pin to that
+        // specific list; otherwise allow any canonical extension ID
+        // for dev convenience. The pinning option is the mitigation
+        // for f4's "every installed extension passes" class of attack.
+        const allow = extAllowList();
+        if (allow === null) return cb(null, true);
+        const id = origin.substring("chrome-extension://".length);
+        return cb(null, allow.has(id));
       }
       // Fail-soft: do NOT throw, just return false so the response lacks
       // the ACAO header. Disallowed origins still get a 204 on OPTIONS

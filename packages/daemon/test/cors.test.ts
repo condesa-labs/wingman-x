@@ -187,6 +187,111 @@ describe("CORS preflight", () => {
       expect(res.headers["access-control-allow-origin"]).toBe(origin);
     }
   });
+
+  describe("TWITTER_HELPER_EXT_ALLOWED_IDS (f4 defense-in-depth)", () => {
+    afterEach(() => {
+      delete process.env.TWITTER_HELPER_EXT_ALLOWED_IDS;
+    });
+
+    it("when unset, accepts any canonical extension ID (dev default)", async () => {
+      app = await buildServer();
+      const res = await app.inject({
+        method: "OPTIONS",
+        url: "/candidates",
+        headers: {
+          origin: "chrome-extension://abcdefghijklmnopabcdefghijklmnop",
+          "access-control-request-method": "POST",
+        },
+      });
+      expect(res.headers["access-control-allow-origin"]).toBe(
+        "chrome-extension://abcdefghijklmnopabcdefghijklmnop",
+      );
+    });
+
+    it("when set to a single ID, rejects other canonical IDs", async () => {
+      const allowed = "abcdefghijklmnopabcdefghijklmnop";
+      const rejected = "bcdefghijklmnopabcdefghijklmnopa";
+      process.env.TWITTER_HELPER_EXT_ALLOWED_IDS = allowed;
+      app = await buildServer();
+
+      const okRes = await app.inject({
+        method: "OPTIONS",
+        url: "/candidates",
+        headers: {
+          origin: `chrome-extension://${allowed}`,
+          "access-control-request-method": "POST",
+        },
+      });
+      expect(okRes.headers["access-control-allow-origin"]).toBe(
+        `chrome-extension://${allowed}`,
+      );
+
+      const badRes = await app.inject({
+        method: "OPTIONS",
+        url: "/candidates",
+        headers: {
+          origin: `chrome-extension://${rejected}`,
+          "access-control-request-method": "POST",
+        },
+      });
+      expect(badRes.headers["access-control-allow-origin"]).toBeUndefined();
+    });
+
+    it("supports a comma-separated allowlist", async () => {
+      const idA = "abcdefghijklmnopabcdefghijklmnop";
+      const idB = "bcdefghijklmnopabcdefghijklmnopa";
+      const idC = "cdefghijklmnopabcdefghijklmnopab";
+      process.env.TWITTER_HELPER_EXT_ALLOWED_IDS = `${idA}, ${idB}`;
+      app = await buildServer();
+
+      for (const ok of [idA, idB]) {
+        const res = await app.inject({
+          method: "OPTIONS",
+          url: "/candidates",
+          headers: {
+            origin: `chrome-extension://${ok}`,
+            "access-control-request-method": "POST",
+          },
+        });
+        expect(
+          res.headers["access-control-allow-origin"],
+          `allowed id=${ok}`,
+        ).toBe(`chrome-extension://${ok}`);
+      }
+
+      const res = await app.inject({
+        method: "OPTIONS",
+        url: "/candidates",
+        headers: {
+          origin: `chrome-extension://${idC}`,
+          "access-control-request-method": "POST",
+        },
+      });
+      expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+    });
+
+    it("still honors twitter.com / x.com / localhost content-script origins regardless of pinning", async () => {
+      process.env.TWITTER_HELPER_EXT_ALLOWED_IDS = "abcdefghijklmnopabcdefghijklmnop";
+      app = await buildServer();
+      for (const origin of [
+        "https://twitter.com",
+        "https://x.com",
+        "http://localhost:5173",
+      ]) {
+        const res = await app.inject({
+          method: "OPTIONS",
+          url: "/candidates",
+          headers: {
+            origin,
+            "access-control-request-method": "GET",
+          },
+        });
+        expect(res.headers["access-control-allow-origin"], `origin=${origin}`).toBe(
+          origin,
+        );
+      }
+    });
+  });
 });
 
 describe("daemon identity header", () => {
