@@ -27,10 +27,39 @@ import {
   type PopupCandidate,
 } from "./daemon-client.js";
 import { renderCard } from "./candidate-card.js";
+import { isActiveCandidate } from "../candidate-filter.js";
 
 type RootState = "loading" | "list" | "empty" | "error";
 
 const LOG_PREFIX = "[twitter-helper]";
+
+/**
+ * Session-storage key for the id of the last helper tab we opened.
+ * Used to implement the singleton-tab UX: the next Open click reuses
+ * this tab via `chrome.tabs.update` instead of creating a new one, so
+ * helper tabs don't accumulate across sessions. The id is cleared
+ * implicitly when the browser closes (storage.session scope).
+ */
+const LAST_TAB_KEY = "last_helper_tab_id";
+
+async function getLastHelperTabId(): Promise<number | null> {
+  try {
+    const entry = await chrome.storage.session.get(LAST_TAB_KEY);
+    const id = entry[LAST_TAB_KEY];
+    return typeof id === "number" ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setLastHelperTabId(tabId: number): Promise<void> {
+  try {
+    await chrome.storage.session.set({ [LAST_TAB_KEY]: tabId });
+  } catch {
+    // Fail-soft: losing the stored id just means the next click opens
+    // a fresh tab instead of reusing one. No user-visible breakage.
+  }
+}
 
 function setState(state: RootState): void {
   const root = document.querySelector<HTMLElement>(".root");
@@ -57,17 +86,38 @@ function clearCards(container: HTMLElement): void {
 }
 
 /**
- * Open the given URL in a new active tab. `chrome.tabs.create` is
- * available to popups without the `"tabs"` permission — only
- * URL/Title/etc. readers require that permission. We AWAIT the promise
- * before closing the popup: if we `window.close()` synchronously after
- * the call, Chrome may cancel the pending tab creation with the popup's
- * own destruction, which was observed flaking the E2E's "new tab opens"
- * assertion under a fully-seeded daemon.
+ * Singleton-tab Open: reuse the previously-opened helper tab if it
+ * still exists, otherwise create a fresh one.
+ *
+ * Flow:
+ *   1. Read the stored tab id (if any) from `chrome.storage.session`.
+ *   2. Try `chrome.tabs.update(id, {url, active:true})` — on success,
+ *      the same tab navigates to the new tweet. No new tab is spawned.
+ *   3. If the stored id is stale (user manually closed the tab, moved
+ *      it to another profile, etc.), `update` rejects. Fall through to
+ *      `chrome.tabs.create` and remember the new id.
+ *
+ * We AWAIT the chrome.* call before `window.close()` — closing the
+ * popup synchronously was previously observed to cancel pending tab
+ * operations in-flight (CP10 E2E flake).
  */
 async function openInNewTab(url: string): Promise<void> {
+  const storedId = await getLastHelperTabId();
+  if (storedId !== null) {
+    try {
+      await chrome.tabs.update(storedId, { url, active: true });
+      window.close();
+      return;
+    } catch {
+      // Stored tab no longer exists — fall through to create.
+    }
+  }
+
   try {
-    await chrome.tabs.create({ url, active: true });
+    const created = await chrome.tabs.create({ url, active: true });
+    if (typeof created.id === "number") {
+      await setLastHelperTabId(created.id);
+    }
   } catch (err) {
     console.info(
       `${LOG_PREFIX} chrome.tabs.create failed: ${
@@ -88,7 +138,7 @@ function renderList(
   container: HTMLElement,
 ): boolean {
   clearCards(container);
-  const active = candidates.filter((c) => c.status !== "dismissed");
+  const active = candidates.filter(isActiveCandidate);
   if (active.length === 0) return false;
 
   for (const candidate of active) {
@@ -116,8 +166,15 @@ function handleDismiss(
   );
   card?.remove();
 
-  // Fire-and-forget the POST.
+  // Fire-and-forget the POST + ask the background worker to refresh
+  // the badge count. Without the refresh, the badge stays stale until
+  // the next 3-minute alarm tick — visible drift on a dismiss the
+  // user just performed.
   void postDismiss(port, candidate.tweet_id);
+  chrome.runtime.sendMessage({ type: "refresh_candidates" }, () => {
+    // Swallow chrome.runtime.lastError: the ack is optional.
+    void chrome.runtime.lastError;
+  });
 
   // If the list is now empty, switch to the empty-state panel so the
   // user sees the "run your agent" copy rather than a blank list.

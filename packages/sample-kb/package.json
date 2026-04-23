@@ -1,7 +1,7 @@
 {
   "name": "@twitter-helper/sample-kb",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Sample knowledge base (populated in CP09).",
   "scripts": {}
 }

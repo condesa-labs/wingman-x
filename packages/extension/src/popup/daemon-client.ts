@@ -14,29 +14,14 @@
  * route. Going through the worker keeps the popup idle while the scan
  * runs and avoids duplicate rescans if both sides race.
  */
-import {
-  hasDaemonIdentityHeader,
-  isDaemonCandidatesListResponse,
-} from "../daemon-shape.js";
-export interface PopupCandidate {
-  id: string;
-  tweet_id: string;
-  tweet_url: string;
-  author_handle: string;
-  tweet_text: string;
-  suggested_reply: string;
-  /**
-   * Status is widened to string at the wire boundary because the daemon
-   * can introduce new values (e.g. `regen_requested`) without the popup
-   * needing a manifest bump. The popup only cares whether the value is
-   * `"dismissed"` (filtered out) vs. anything else (shown).
-   */
-  status: string;
-}
+import { fetchCandidatesByPort, type RawCandidate } from "../candidates-fetch.js";
 
-export interface PopupCandidatesResponse {
-  candidates: PopupCandidate[];
-}
+/**
+ * The popup-facing candidate type. Kept as a named alias of the shared
+ * `RawCandidate` so popup code that imports `PopupCandidate` keeps
+ * working without a rename sweep — the wire shape is identical.
+ */
+export type PopupCandidate = RawCandidate;
 
 export interface GetPortResponse {
   port: number | null;
@@ -111,46 +96,19 @@ function sendPortMessage(
 }
 
 /**
- * `GET /candidates`. Throws on any transport error OR daemon-shape
- * mismatch so the caller (runFlow) can treat both as a stale-cache
- * signal, invalidate the port, and retry once (review-loop f12, f13).
+ * Popup entrypoint for the candidates fetch. Delegates to the shared
+ * `fetchCandidatesByPort` helper (`src/candidates-fetch.ts`) so the
+ * popup and the background alarm use identical wire validation — a
+ * single place enforces the daemon-identity header + full-shape check.
  *
- * Shape mismatch matters because the cached port might belong to a
- * co-located local HTTP service (daemon restarted onto a different
- * auto-bumped port; old port now owned by something else). Without
- * this check, `body.candidates ?? []` would silently collapse any
- * 200 JSON into an empty list and pin the popup to the wrong
- * service indefinitely. The validator verifies the FULL Candidate
- * contract (see `packages/extension/src/daemon-shape.ts`) so a
- * squatter answering with a close-but-not-quite payload — invalid
- * `tweet_url`, wrong `status` value, missing timestamps — is
- * rejected.
+ * Throws on any transport error OR daemon-shape mismatch so the caller
+ * (runFlow) can treat both as a stale-cache signal, invalidate the
+ * port, and retry once (review-loop f12, f13, f14).
  */
 export async function fetchCandidates(
   port: number,
 ): Promise<PopupCandidate[]> {
-  const res = await fetch(`http://localhost:${port}/candidates`, {
-    method: "GET",
-    headers: { accept: "application/json" },
-  });
-  // Daemon identity check FIRST — uniform across status codes, catches
-  // squatters that return 404 / 5xx (review-loop f14). Body-shape
-  // validation below is belt-and-suspenders for daemon API drift.
-  if (!hasDaemonIdentityHeader(res)) {
-    throw new Error(
-      `GET /candidates missing daemon identity header — cached port ${port} likely stale`,
-    );
-  }
-  if (!res.ok) {
-    throw new Error(`GET /candidates returned ${res.status}`);
-  }
-  const body = (await res.json()) as unknown;
-  if (!isDaemonCandidatesListResponse(body)) {
-    throw new Error(
-      `GET /candidates response shape mismatch — cached port ${port} likely stale`,
-    );
-  }
-  return (body as PopupCandidatesResponse).candidates;
+  return fetchCandidatesByPort(port);
 }
 
 /**

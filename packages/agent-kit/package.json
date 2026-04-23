@@ -1,7 +1,7 @@
 {
   "name": "@twitter-helper/agent-kit",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed HTTP client + Candidate validators any agent can use to talk to the local daemon.",
   "type": "module",
   "main": "dist/index.js",
@@ -12,7 +12,10 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run --coverage",
