@@ -144,3 +144,35 @@ export async function postDismiss(
     );
   }
 }
+
+/**
+ * `POST /signals` with `{ kind: "discovery_requested" }`. Fires when the
+ * user clicks the popup's "Request discovery" button. Returns true on
+ * HTTP 2xx — the caller uses that to show "Requested at HH:MM:SS"
+ * confirmation or a failure note. Fail-soft: on network / non-2xx the
+ * promise resolves false rather than throwing, matching the popup's
+ * overall pattern of never crashing on daemon hiccups.
+ */
+export async function postDiscoveryRequest(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://localhost:${port}/signals`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "discovery_requested" }),
+    });
+    if (!res.ok) {
+      console.info(
+        `[twitter-helper] POST /signals returned ${res.status}`,
+      );
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.info(
+      `[twitter-helper] POST /signals failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return false;
+  }
+}
