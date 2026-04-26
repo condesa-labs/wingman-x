@@ -20,6 +20,10 @@
     "bump:patch": "node scripts/bump-version.mjs patch",
     "bump:minor": "node scripts/bump-version.mjs minor",
     "bump:major": "node scripts/bump-version.mjs major",
-    "bump:sync": "node scripts/bump-version.mjs sync"
+    "bump:sync": "node scripts/bump-version.mjs sync",
+    "launch-chrome": "bash scripts/launch-chrome.sh"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7"
   }
 }

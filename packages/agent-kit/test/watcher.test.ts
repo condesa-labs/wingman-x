@@ -282,7 +282,7 @@ describe("runDiscovery — happy path", () => {
     expect(counters.drafted_failed_exit).toBe(0);
 
     // ackSignal POST hit /signals/:id/ack with the matching id.
-    const ackCall = fetchMock.mock.calls.find(([url]) =>
+    const ackCall = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(([url]) =>
       typeof url === "string" && url.includes("/signals/sig-1/ack"),
     );
     expect(ackCall).toBeDefined();
@@ -337,11 +337,11 @@ describe("runDiscovery — failure paths", () => {
     expect(timeoutLog).toContain('"tweet_id":"t-timeout"');
 
     // Critically: NOT POSTed to /candidates.
-    const candidatePost = fetchMock.mock.calls.find(
+    const candidatePost = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(
       ([url, init]) =>
         typeof url === "string" &&
         url.endsWith("/candidates") &&
-        (init as RequestInit | undefined)?.method === "POST",
+        init?.method === "POST",
     );
     expect(candidatePost).toBeUndefined();
   });
@@ -391,11 +391,11 @@ describe("runDiscovery — failure paths", () => {
     expect(failLog).toContain('"exit_code":1');
     expect(failLog).toContain('"stderr_tail":"rate limit"');
 
-    const candidatePost = fetchMock.mock.calls.find(
+    const candidatePost = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(
       ([url, init]) =>
         typeof url === "string" &&
         url.endsWith("/candidates") &&
-        (init as RequestInit | undefined)?.method === "POST",
+        init?.method === "POST",
     );
     expect(candidatePost).toBeUndefined();
   });
@@ -442,11 +442,11 @@ describe("runDiscovery — failure paths", () => {
     expect(log).toBeDefined();
     expect(log).toContain('"reason":"empty_stdout"');
 
-    const candidatePost = fetchMock.mock.calls.find(
+    const candidatePost = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(
       ([url, init]) =>
         typeof url === "string" &&
         url.endsWith("/candidates") &&
-        (init as RequestInit | undefined)?.method === "POST",
+        init?.method === "POST",
     );
     expect(candidatePost).toBeUndefined();
   });
@@ -495,11 +495,11 @@ describe("runDiscovery — failure paths", () => {
     expect(log).toBeDefined();
     expect(log).toContain('"reason":"invalid_json"');
 
-    const candidatePost = fetchMock.mock.calls.find(
+    const candidatePost = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(
       ([url, init]) =>
         typeof url === "string" &&
         url.endsWith("/candidates") &&
-        (init as RequestInit | undefined)?.method === "POST",
+        init?.method === "POST",
     );
     expect(candidatePost).toBeUndefined();
   });
@@ -551,11 +551,11 @@ describe("runDiscovery — failure paths", () => {
     expect(log).toBeDefined();
     expect(log).toContain('"reason":"zod_validation"');
 
-    const candidatePost = fetchMock.mock.calls.find(
+    const candidatePost = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(
       ([url, init]) =>
         typeof url === "string" &&
         url.endsWith("/candidates") &&
-        (init as RequestInit | undefined)?.method === "POST",
+        init?.method === "POST",
     );
     expect(candidatePost).toBeUndefined();
   });
@@ -620,5 +620,299 @@ describe("--dry-run code path (runDryRun)", () => {
     expect(banner).toMatch(/library files=3/);
     expect(banner).toMatch(/claude bin=claude/);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("runDiscovery — auxiliary failure paths", () => {
+  it("scrape failure: scraper child exits non-zero, watcher still ackSignals", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({ stderr: "scraper crashed", exitCode: 7 }),
+    );
+    const fetchMock = vi.fn(
+      async (url: string) =>
+        new Response(
+          JSON.stringify({
+            id: "sig-7",
+            kind: "discovery_requested",
+            status: "acked",
+            created_at: "x",
+            acked_at: "y",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+    const counters = emptyCounters();
+    const logs: string[] = [];
+    await runDiscovery(
+      { id: "sig-7", kind: "discovery_requested", created_at: "x" },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+    // No drafts attempted because scraper failed.
+    expect(counters.drafts_attempted).toBe(0);
+    expect(logs.some((l) => l.includes('"event":"scrape_failed"'))).toBe(true);
+    // Ack still fires so the queue doesn't hot-loop.
+    const ackCall = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(([url]) =>
+      typeof url === "string" && url.includes("/signals/sig-7/ack"),
+    );
+    expect(ackCall).toBeDefined();
+  });
+
+  it("scrape failure: scraper stdout is invalid JSON, watcher still ackSignals", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({ stdout: "not JSON {", exitCode: 0 }),
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "sig-8",
+            kind: "discovery_requested",
+            status: "acked",
+            created_at: "x",
+            acked_at: "y",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+    const counters = emptyCounters();
+    const logs: string[] = [];
+    await runDiscovery(
+      { id: "sig-8", kind: "discovery_requested", created_at: "x" },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+    expect(
+      logs.some(
+        (l) => l.includes('"event":"scrape_failed"') && l.includes("invalid_json"),
+      ),
+    ).toBe(true);
+  });
+
+  it("scrape returns non-array JSON: discovery returns null gracefully", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: JSON.stringify({ not: "an array" }),
+        exitCode: 0,
+      }),
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+    const counters = emptyCounters();
+    const logs: string[] = [];
+    await runDiscovery(
+      { id: "sig-9", kind: "discovery_requested", created_at: "x" },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+    expect(counters.drafts_attempted).toBe(0);
+  });
+
+  it("post candidate non-2xx response: logs and does not increment drafted_ok", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(() =>
+        makeFakeChild({
+          stdout: JSON.stringify([
+            {
+              tweet_id: "t-post-fail",
+              tweet_url: "https://x.com/u/status/9",
+              author_handle: "@u",
+              tweet_text: "x",
+            },
+          ]),
+          exitCode: 0,
+        }),
+      )
+      .mockImplementationOnce(() =>
+        makeFakeChild({ stdout: validCandidateJson, exitCode: 0 }),
+      );
+    const fetchMock = vi.fn(async (url: string) => {
+      if (typeof url === "string" && url.endsWith("/candidates")) {
+        return new Response("server error", {
+          status: 500,
+          statusText: "Internal Server Error",
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          id: "sig-a",
+          kind: "discovery_requested",
+          status: "acked",
+          created_at: "x",
+          acked_at: "y",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+    const counters = emptyCounters();
+    const logs: string[] = [];
+    await runDiscovery(
+      { id: "sig-a", kind: "discovery_requested", created_at: "x" },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+    expect(counters.drafts_attempted).toBe(1);
+    expect(counters.drafted_ok).toBe(0);
+    expect(
+      logs.some((l) => l.includes('"event":"candidate_post_failed"')),
+    ).toBe(true);
+  });
+
+  it("post candidate network error: logs and does not throw", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(() =>
+        makeFakeChild({
+          stdout: JSON.stringify([
+            {
+              tweet_id: "t-net-fail",
+              tweet_url: "https://x.com/u/status/10",
+              author_handle: "@u",
+              tweet_text: "x",
+            },
+          ]),
+          exitCode: 0,
+        }),
+      )
+      .mockImplementationOnce(() =>
+        makeFakeChild({ stdout: validCandidateJson, exitCode: 0 }),
+      );
+    const fetchMock = vi.fn(async (url: string) => {
+      if (typeof url === "string" && url.endsWith("/candidates")) {
+        throw new TypeError("fetch failed");
+      }
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+    const counters = emptyCounters();
+    const logs: string[] = [];
+    await runDiscovery(
+      { id: "sig-b", kind: "discovery_requested", created_at: "x" },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+    expect(counters.drafted_ok).toBe(0);
+    expect(
+      logs.some(
+        (l) =>
+          l.includes('"event":"candidate_post_failed"') &&
+          l.includes("network_error"),
+      ),
+    ).toBe(true);
+  });
+
+  it("ack non-2xx response: logs ack_failed", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({ stdout: JSON.stringify([]), exitCode: 0 }),
+    );
+    const fetchMock = vi.fn(async () =>
+      new Response("nope", { status: 404 }),
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+    const counters = emptyCounters();
+    const logs: string[] = [];
+    await runDiscovery(
+      { id: "sig-c", kind: "discovery_requested", created_at: "x" },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+    expect(logs.some((l) => l.includes('"event":"ack_failed"'))).toBe(true);
+  });
+
+  it("ack network error: logs ack_failed without throwing", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({ stdout: JSON.stringify([]), exitCode: 0 }),
+    );
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+    const counters = emptyCounters();
+    const logs: string[] = [];
+    await runDiscovery(
+      { id: "sig-d", kind: "discovery_requested", created_at: "x" },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+    expect(
+      logs.some(
+        (l) =>
+          l.includes('"event":"ack_failed"') && l.includes("network_error"),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("periodic stdout summary every N=5 drafts", () => {
+  it("emits summary once after 5 drafts (not at 1, 2, 3, 4)", async () => {
+    // Five tweets — five drafts. All fail with empty stdout (fastest path).
+    const tweets = Array.from({ length: 5 }, (_, i) => ({
+      tweet_id: `t-${i}`,
+      tweet_url: `https://x.com/u/status/${i}`,
+      author_handle: "@u",
+      tweet_text: "x",
+    }));
+    const spawnMock = (spawn as unknown as ReturnType<typeof vi.fn>);
+    // Scraper:
+    spawnMock.mockImplementationOnce(() =>
+      makeFakeChild({ stdout: JSON.stringify(tweets), exitCode: 0 }),
+    );
+    // Five claude calls — all return empty stdout.
+    for (let i = 0; i < 5; i += 1) {
+      spawnMock.mockImplementationOnce(() =>
+        makeFakeChild({ stdout: "", exitCode: 0 }),
+      );
+    }
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+    const counters = emptyCounters();
+    const logs: string[] = [];
+    await runDiscovery(
+      { id: "sig-sum", kind: "discovery_requested", created_at: "x" },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+    const summaries = logs.filter((l) =>
+      l.includes('"drafts_attempted":5'),
+    );
+    expect(summaries).toHaveLength(1);
+    // The summary fields must match the spec literal set.
+    const summary = JSON.parse(summaries[0]!);
+    expect(summary).toEqual({
+      drafts_attempted: 5,
+      drafted_ok: 0,
+      drafted_failed_timeout: 0,
+      drafted_failed_invalid_json: 0,
+      drafted_failed_exit: 0,
+    });
   });
 });
