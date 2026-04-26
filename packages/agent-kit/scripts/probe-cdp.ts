@@ -5,6 +5,7 @@
  * only). Useful to discover which running Chrome has an x.com session we
  * can reuse.
  */
+import "../../../scripts/load-env.mjs";
 import { chromium } from "playwright";
 
 const URLS = (process.env.CDP_URLS ?? "http://localhost:9222,http://localhost:49440,http://localhost:57419")

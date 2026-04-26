@@ -5,6 +5,7 @@
  * from both the page context and the extension's background context to
  * pinpoint why the popup shows a disconnected state.
  */
+import "../../../scripts/load-env.mjs";
 import { chromium, type Browser } from "playwright";
 
 const CDP_URL = process.env.CDP_URL ?? "http://localhost:9223";

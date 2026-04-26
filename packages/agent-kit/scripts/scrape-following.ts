@@ -10,6 +10,7 @@
  *   MAX_SCROLLS   — bounded scroll iterations, default 80
  *   SCROLL_WAIT   — ms between scrolls, default 700
  */
+import "../../../scripts/load-env.mjs";
 import { chromium, type Page } from "playwright";
 
 const CDP_URL = process.env.CDP_URL ?? "http://localhost:9223";

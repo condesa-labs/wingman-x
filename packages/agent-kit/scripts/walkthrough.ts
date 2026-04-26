@@ -5,6 +5,7 @@
  * collapsed "Post your reply" placeholder), wait for the Dock, click
  * Fill, verify the composer got populated. STOPS BEFORE CLICKING TWEET.
  */
+import "../../../scripts/load-env.mjs";
 import { chromium, type Page } from "playwright";
 import { mkdirSync } from "node:fs";
 

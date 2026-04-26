@@ -15,6 +15,7 @@
  *                     (the file is tier-sorted; 14 = just Tier 1).
  *                     Set higher to sample into Tier 2 (background list).
  */
+import "../../../scripts/load-env.mjs";
 import { chromium, type Page } from "playwright";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";

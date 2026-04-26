@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import "../../../scripts/load-env.mjs";
 import { chromium } from "playwright";
 
 const CDP_URL = process.env.CDP_URL ?? "http://localhost:9223";

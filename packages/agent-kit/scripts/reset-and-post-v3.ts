@@ -14,6 +14,7 @@
  * State on disk (~/.twitter-helper/state.json) is preserved. Only the
  * popup's "visible queue" changes.
  */
+import "../../../scripts/load-env.mjs";
 import { createDaemonClient } from "../src/client.js";
 import { CandidateInputSchema } from "../src/candidate.js";
 import { readFileSync } from "node:fs";
