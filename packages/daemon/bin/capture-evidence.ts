@@ -8,6 +8,7 @@
  * Not part of the shipped package — internal to the harness evaluation
  * workflow.
  */
+import "../../../scripts/load-env.mjs";
 import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

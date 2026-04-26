@@ -95,9 +95,59 @@ export const ActionBodySchema = z.object({
   action: ActionEnum,
 });
 
+/**
+ * Agent-pull signal — an extension-authored "please do X" nudge the
+ * agent picks up on its next session. Mirrors the shape of the existing
+ * per-candidate `action=regen_requested` pattern, but at global scope.
+ *
+ * The initial (and only) kind is `discovery_requested`: the popup's
+ * "Request discovery" button fires it, the agent's discover skill acks
+ * it after a successful run. `meta` is reserved for future filter
+ * parameters (e.g., `{tier: "1"}`) without breaking the schema.
+ */
+export const SignalKindEnum = z.enum(["discovery_requested"]);
+export type SignalKind = z.infer<typeof SignalKindEnum>;
+
+export const SignalStatusEnum = z.enum(["pending", "acked"]);
+export type SignalStatus = z.infer<typeof SignalStatusEnum>;
+
+/**
+ * Optional caller-supplied metadata. Bounded to primitives so signals
+ * stay flat, serializable, and cheap to filter. Rejecting nested
+ * objects/arrays also keeps the daemon from becoming an accidental
+ * general-purpose K/V store.
+ */
+export const SignalMetaSchema = z.record(
+  z.string(),
+  z.union([z.string(), z.number(), z.boolean()]),
+);
+export type SignalMeta = z.infer<typeof SignalMetaSchema>;
+
+export const SignalInputSchema = z.object({
+  kind: SignalKindEnum,
+  meta: SignalMetaSchema.optional(),
+});
+export type SignalInput = z.infer<typeof SignalInputSchema>;
+
+export const SignalSchema = z.object({
+  id: z.string().uuid(),
+  kind: SignalKindEnum,
+  status: SignalStatusEnum,
+  meta: SignalMetaSchema.optional(),
+  created_at: z.string().datetime(),
+  acked_at: z.string().datetime().optional(),
+});
+export type Signal = z.infer<typeof SignalSchema>;
+
+export const SignalsQuerySchema = z.object({
+  kind: SignalKindEnum.optional(),
+  status: SignalStatusEnum.optional(),
+});
+
 export const StateFileSchema = z.object({
   port: z.number().int().optional(),
   candidates: z.record(z.string(), CandidateSchema).default({}),
+  signals: z.record(z.string(), SignalSchema).default({}),
   config: z
     .object({
       kb_dir: z.string(),
