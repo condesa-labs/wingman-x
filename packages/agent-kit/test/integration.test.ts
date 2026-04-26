@@ -4,7 +4,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDaemonClient, CandidateSchema } from "../src/index.js";
+import {
+  createDaemonClient,
+  CandidateSchema,
+  SignalSchema,
+} from "../src/index.js";
 
 /**
  * Integration test: spin up a REAL daemon, round-trip candidates through
@@ -186,5 +190,40 @@ describe("integration: agent-kit against real daemon", () => {
     expect(cfg.port).toBe(port);
     expect(typeof cfg.kb_dir).toBe("string");
     expect(cfg.kb_dir.length).toBeGreaterThan(0);
+  });
+
+  it("round-trips pull-signals: postSignal → listSignals(pending) → ackSignal", async () => {
+    const client = createDaemonClient(port);
+
+    // Baseline: no pending signals in this fresh state dir.
+    const beforeList = await client.listSignals({
+      kind: "discovery_requested",
+      status: "pending",
+    });
+    expect(beforeList).toHaveLength(0);
+
+    const created = await client.postSignal({ kind: "discovery_requested" });
+    // Daemon-returned shape must satisfy agent-kit's own zod schema —
+    // same "assert shape match" discipline as the candidate round-trip.
+    expect(() => SignalSchema.parse(created)).not.toThrow();
+    expect(created.status).toBe("pending");
+    expect(created.kind).toBe("discovery_requested");
+
+    const pending = await client.listSignals({
+      kind: "discovery_requested",
+      status: "pending",
+    });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.id).toBe(created.id);
+
+    const acked = await client.ackSignal(created.id);
+    expect(acked.status).toBe("acked");
+    expect(typeof acked.acked_at).toBe("string");
+
+    const pendingAfter = await client.listSignals({
+      kind: "discovery_requested",
+      status: "pending",
+    });
+    expect(pendingAfter).toHaveLength(0);
   });
 });

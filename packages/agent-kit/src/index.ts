@@ -19,3 +19,16 @@ export {
   type CandidatesListResponse,
   type SuggestionResponse,
 } from "./candidate.js";
+export {
+  SignalKindSchema,
+  SignalStatusSchema,
+  SignalInputSchema,
+  SignalSchema,
+  SignalsListResponseSchema,
+  type SignalKind,
+  type SignalStatus,
+  type SignalInput,
+  type Signal,
+  type SignalsQuery,
+  type SignalsListResponse,
+} from "./signal.js";
