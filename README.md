@@ -192,7 +192,26 @@ pulls from when picking what to reply to.
 
 ### 5. Run discovery
 
-Pick your agent host:
+**Prereq — launch the Twitter Helper Chrome profile.** The agent needs a
+logged-in Chromium to read your timeline. The repo ships a helper that
+boots a dedicated, persistently cookied Chrome with remote debugging on:
+
+```bash
+npm run launch-chrome
+```
+
+This reads `.env` for `CHROME_EXECUTABLE`, `CHROME_PROFILE_DIR`, and
+`CHROME_REMOTE_DEBUGGING_PORT` — see [Configuration via `.env`](#configuration-via-env).
+The first run will ask you to sign in to twitter.com **once**; from then
+on the profile keeps the session. If a debuggable Chrome is already up on
+that port, the script exits cleanly (no double-launch).
+
+Skip this step if your `chrome-devtools` MCP is configured with
+`--browserUrl http://127.0.0.1:9223` (it will attach to the same
+instance), or if you prefer an `--isolated` ephemeral browser and are
+comfortable signing in on every run.
+
+Then pick your agent host:
 
 **Claude Code** — this repo ships with a reference skill:
 
@@ -341,6 +360,32 @@ All state is **local** and lives under `~/.twitter-helper/` by default.
 | `~/.twitter-helper/kb/library/*.md` | Topical notes the agent uses when scoring candidates. Add/remove freely. |
 | `~/.twitter-helper/kb/selected-handles.txt` | Optional. Tier-sorted handle list the per-handle scrape scripts walk. |
 
+### Configuration via `.env`
+
+Personal config (Chrome path, profile dir, debug port, daemon port) lives
+in a gitignored `.env` at the repo root, with [`.env.template`](./.env.template)
+as the committed reference. Copy once and edit:
+
+```bash
+cp .env.template .env
+```
+
+**Loading hierarchy** (highest priority first):
+
+1. Real process env — `CDP_URL=... npm run dev`, CI, shell overrides
+2. `.env.local` — optional secondary overrides (also gitignored)
+3. `.env` — primary personal config
+4. Hardcoded defaults in the code
+
+The loader is [`scripts/load-env.mjs`](./scripts/load-env.mjs) — imported as
+the first side-effectful import by `packages/daemon/bin/dev.ts` and every
+CDP/daemon script under `packages/agent-kit/scripts/`. `dotenv.config()`
+does not overwrite already-set vars, so real process env always wins.
+
+Quote values that contain spaces (e.g. the macOS Chrome path) so both
+Node's `dotenv` and bash's `source` (used by `scripts/launch-chrome.sh`)
+parse them as a single token.
+
 ### Environment variables
 
 | Variable | Default | What it does |
@@ -349,7 +394,10 @@ All state is **local** and lives under `~/.twitter-helper/` by default.
 | `TWITTER_HELPER_STATE_DIR` | `~/.twitter-helper` | Override state dir (useful for scratch / CI / per-profile). |
 | `TWITTER_HELPER_EXT_ALLOWED_IDS` | *(unset)* | Comma-separated Chrome extension IDs. When set, CORS ACAO is pinned to those extension origins and requests from other origins are 403'd. **Recommended for shared / hostile dev machines.** |
 | `DAEMON_PORT` | `53827` | Used by `agent-kit/scripts/*` to target the running daemon. |
-| `CDP_URL` | `http://localhost:9223` | Used by CDP-based agent scripts to attach to the browser. |
+| `CDP_URL` | `http://localhost:9223` | Used by CDP-based agent scripts to attach to the browser. Must match `CHROME_REMOTE_DEBUGGING_PORT`. |
+| `CHROME_EXECUTABLE` | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` | Consumed by `npm run launch-chrome`. Linux: `/usr/bin/google-chrome`. Windows: `C:\Program Files\Google\Chrome\Application\chrome.exe`. |
+| `CHROME_PROFILE_DIR` | `$HOME/.twitter-helper/chrome-profile` | Dedicated user-data-dir where Twitter cookies live. **Not** your default Chrome profile. |
+| `CHROME_REMOTE_DEBUGGING_PORT` | `9223` | `--remote-debugging-port` passed to Chrome. |
 
 ### Extension-side settings
 
