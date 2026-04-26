@@ -192,7 +192,10 @@ async function main(): Promise<void> {
     drafted_failed_empty: 0,
   };
 
-  const log = (l: string): void => process.stdout.write(`${l}\n`);
+  const log = (l: string): void => {
+    // process.stdout.write returns boolean; void return type discards it.
+    process.stdout.write(`${l}\n`);
+  };
 
   let attempt = 0;
   while (true) {
