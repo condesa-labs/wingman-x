@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { postDiscoveryRequest } from "../../src/popup/daemon-client.js";
+import {
+  postDiscoveryRequest,
+  postDiscoveryRequestWithStaleRecovery,
+} from "../../src/popup/daemon-client.js";
 
 // `postDiscoveryRequest` is fail-soft by contract: every error path
 // must return false rather than throw, so the popup's click handler
@@ -8,9 +11,27 @@ import { postDiscoveryRequest } from "../../src/popup/daemon-client.js";
 
 const PORT = 53827;
 const ENDPOINT = `http://localhost:${PORT}/signals`;
+const NEW_PORT = 53830;
 
 function stubFetch(impl: (url: string, init: RequestInit) => Promise<Response>): void {
   vi.stubGlobal("fetch", vi.fn(impl as unknown as typeof fetch));
+}
+
+function stubChromeInvalidatePort(port: number | null): void {
+  vi.stubGlobal("chrome", {
+    runtime: {
+      lastError: undefined,
+      sendMessage: vi.fn(
+        (
+          message: { type: string },
+          cb: (response: { port: number | null }) => void,
+        ) => {
+          expect(message).toEqual({ type: "invalidate_port" });
+          cb({ port });
+        },
+      ),
+    },
+  });
 }
 
 afterEach(() => {
@@ -76,5 +97,41 @@ describe("postDiscoveryRequest", () => {
     // The contract is "never throw"; if it threw, this `await` would
     // reject and Vitest would surface it as a test failure.
     await expect(postDiscoveryRequest(PORT)).resolves.toBe(false);
+  });
+});
+
+describe("postDiscoveryRequestWithStaleRecovery", () => {
+  it("invalidates and retries once on a failed cached-port POST", async () => {
+    const urls: string[] = [];
+    stubFetch(async (url) => {
+      urls.push(url);
+      if (url === `http://localhost:${PORT}/signals`) {
+        throw new TypeError("stale port");
+      }
+      return new Response(JSON.stringify({ id: "abc", status: "pending" }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    stubChromeInvalidatePort(NEW_PORT);
+
+    await expect(
+      postDiscoveryRequestWithStaleRecovery(PORT),
+    ).resolves.toEqual({ port: NEW_PORT, ok: true });
+    expect(urls).toEqual([
+      `http://localhost:${PORT}/signals`,
+      `http://localhost:${NEW_PORT}/signals`,
+    ]);
+  });
+
+  it("returns no-port when rediscovery exhausts the daemon range", async () => {
+    stubFetch(async () => {
+      throw new TypeError("stale port");
+    });
+    stubChromeInvalidatePort(null);
+
+    await expect(
+      postDiscoveryRequestWithStaleRecovery(PORT),
+    ).resolves.toEqual({ port: null, ok: null });
   });
 });

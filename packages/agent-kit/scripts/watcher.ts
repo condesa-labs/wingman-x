@@ -32,6 +32,7 @@ import { join } from "node:path";
 import {
   RECONNECT_BACKOFF_MS,
   SAFETY_BOUNDARY_PROMPT,
+  type DispatchedSignal,
   dispatchSignal,
   runDiscovery,
   runDryRun,
@@ -39,11 +40,13 @@ import {
   type WatcherCounters,
 } from "../src/watcher-core.js";
 import { parseSseFrame } from "../src/sse-parser.js";
+import { SignalsListResponseSchema } from "../src/signal.js";
 
 const KB_DIR = join(homedir(), ".twitter-helper", "kb");
 const PORT_START = 53827;
 const PORT_END = 53836;
 const DEFAULT_DRAFT_TIMEOUT_MS = 60_000;
+const DEFAULT_SCRAPE_TIMEOUT_MS = 60_000;
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const SUMMARY_EVERY_N = 5;
 
@@ -127,6 +130,87 @@ function parsePositiveNumberEnv(name: string, fallback: number): number {
   return fallback;
 }
 
+async function drainPendingDiscoverySignals(
+  ctx: {
+    config: WatcherConfig;
+    counters: WatcherCounters;
+    log: (line: string) => void;
+    trackChild: (child: ChildProcess) => () => void;
+  },
+): Promise<void> {
+  const pending: DispatchedSignal[] = [];
+  let cursor: string | undefined;
+
+  while (true) {
+    const qs = new URLSearchParams({
+      kind: "discovery_requested",
+      status: "pending",
+      limit: "50",
+    });
+    if (cursor !== undefined) qs.set("cursor", cursor);
+
+    try {
+      const res = await fetch(
+        `http://localhost:${ctx.config.daemonPort}/signals?${qs.toString()}`,
+        { signal: AbortSignal.timeout(ctx.config.fetchTimeoutMs) },
+      );
+      if (!res.ok) {
+        ctx.log(
+          JSON.stringify({
+            event: "pending_signal_drain_failed",
+            status: res.status,
+          }),
+        );
+        return;
+      }
+
+      const parsed = SignalsListResponseSchema.safeParse(await res.json());
+      if (!parsed.success) {
+        ctx.log(
+          JSON.stringify({
+            event: "pending_signal_drain_failed",
+            reason: "invalid_response",
+            zod_issues: parsed.error.issues.map((i) => i.path.join(".")),
+          }),
+        );
+        return;
+      }
+
+      for (const signal of parsed.data.signals) {
+        pending.push({
+          id: signal.id,
+          kind: signal.kind,
+          created_at: signal.created_at,
+        });
+      }
+
+      if (parsed.data.nextCursor === undefined) break;
+      cursor = parsed.data.nextCursor;
+    } catch (err) {
+      ctx.log(
+        JSON.stringify({
+          event: "pending_signal_drain_failed",
+          reason: "network_error",
+          message: (err as Error).message ?? String(err),
+        }),
+      );
+      return;
+    }
+  }
+
+  for (const signal of pending) {
+    ctx.log(
+      JSON.stringify({
+        event: "signal_received",
+        source: "pending_drain",
+        id: signal.id,
+        kind: signal.kind,
+      }),
+    );
+    await runDiscovery(signal, ctx);
+  }
+}
+
 async function main(): Promise<void> {
   const isDryRun = process.argv.includes("--dry-run");
 
@@ -145,6 +229,10 @@ async function main(): Promise<void> {
     "WATCHER_DRAFT_TIMEOUT_MS",
     DEFAULT_DRAFT_TIMEOUT_MS,
   );
+  const scrapeTimeoutMs = parsePositiveNumberEnv(
+    "WATCHER_SCRAPE_TIMEOUT_MS",
+    DEFAULT_SCRAPE_TIMEOUT_MS,
+  );
   const fetchTimeoutMs = parsePositiveNumberEnv(
     "WATCHER_FETCH_TIMEOUT_MS",
     DEFAULT_FETCH_TIMEOUT_MS,
@@ -153,6 +241,7 @@ async function main(): Promise<void> {
   const config: WatcherConfig = {
     daemonPort: port,
     draftTimeoutMs,
+    scrapeTimeoutMs,
     fetchTimeoutMs,
     kbSystemPrompt: kb.systemPrompt,
     // Use the local tsx binary to drive the scraper. Resolve relative to
@@ -234,6 +323,12 @@ async function main(): Promise<void> {
           }),
         );
       }
+      await drainPendingDiscoverySignals({
+        config,
+        counters,
+        log,
+        trackChild,
+      });
       log(
         JSON.stringify({
           event: "subscribed",

@@ -24,7 +24,7 @@ remember_env_keys() {
     [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*= ]] || continue
     key="${BASH_REMATCH[2]}"
     seen=0
-    for existing in "${ENV_KEYS[@]}"; do
+    for existing in ${ENV_KEYS[@]+"${ENV_KEYS[@]}"}; do
       if [[ "$existing" == "$key" ]]; then
         seen=1
         break
@@ -55,7 +55,7 @@ load_envfile() {
 
 restore_real_env_overrides() {
   local key set_var value_var
-  for key in "${ENV_KEYS[@]}"; do
+  for key in ${ENV_KEYS[@]+"${ENV_KEYS[@]}"}; do
     set_var="__TWH_ORIG_SET_${key}"
     value_var="__TWH_ORIG_VALUE_${key}"
     if [[ "${!set_var}" == "1" ]]; then

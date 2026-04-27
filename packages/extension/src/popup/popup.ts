@@ -23,7 +23,7 @@ import {
   fetchCandidates,
   getPortFromWorker,
   invalidatePortAndRediscover,
-  postDiscoveryRequest,
+  postDiscoveryRequestWithStaleRecovery,
   postDismiss,
   type PopupCandidate,
 } from "./daemon-client.js";
@@ -412,8 +412,14 @@ function wireRequestDiscovery(): void {
         statusEl.textContent = DISCOVERY_STATUS.inFlight;
       }
 
-      const ok = await postDiscoveryRequest(currentPort);
-      const outcome = computeDiscoveryOutcome(currentPort, ok, new Date());
+      const result = await postDiscoveryRequestWithStaleRecovery(currentPort);
+      currentPort = result.port;
+      setPortFooter(currentPort);
+      const outcome = computeDiscoveryOutcome(
+        result.port,
+        result.ok,
+        new Date(),
+      );
       if (statusEl !== null) {
         statusEl.textContent = outcome.status;
       }

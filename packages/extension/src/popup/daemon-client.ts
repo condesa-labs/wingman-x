@@ -176,3 +176,31 @@ export async function postDiscoveryRequest(port: number): Promise<boolean> {
     return false;
   }
 }
+
+export interface DiscoveryRequestResult {
+  port: number | null;
+  ok: boolean | null;
+}
+
+/**
+ * POST /signals, then recover once if the popup's cached port was stale.
+ * The candidates fetch path already invalidates stale ports; the discovery
+ * button needs the same treatment because it also talks to the daemon via
+ * the cached `currentPort`.
+ */
+export async function postDiscoveryRequestWithStaleRecovery(
+  port: number,
+): Promise<DiscoveryRequestResult> {
+  const firstOk = await postDiscoveryRequest(port);
+  if (firstOk) return { port, ok: true };
+
+  const freshPort = await invalidatePortAndRediscover();
+  if (freshPort === null) {
+    return { port: null, ok: null };
+  }
+  if (freshPort === port) {
+    return { port, ok: false };
+  }
+
+  return { port: freshPort, ok: await postDiscoveryRequest(freshPort) };
+}

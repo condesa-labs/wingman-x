@@ -399,6 +399,7 @@ parse them as a single token.
 | `CHROME_PROFILE_DIR` | `$HOME/.twitter-helper/chrome-profile` | Dedicated user-data-dir where Twitter cookies live. **Not** your default Chrome profile. |
 | `CHROME_REMOTE_DEBUGGING_PORT` | `9223` | `--remote-debugging-port` passed to Chrome. |
 | `WATCHER_DRAFT_TIMEOUT_MS` | `60000` | Max time for one LLM draft before the watcher terminates that child process. |
+| `WATCHER_SCRAPE_TIMEOUT_MS` | `60000` | Max time for one scraper run before the watcher terminates that child process. |
 | `WATCHER_FETCH_TIMEOUT_MS` | `10000` | Max time for watcher POST/ack calls to the daemon before logging a network timeout. |
 
 ### Extension-side settings
