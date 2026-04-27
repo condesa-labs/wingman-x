@@ -9,13 +9,14 @@
  *      and ~/.twitter-helper/kb/library/*.md and concat them into the
  *      system-prompt body. The safety-boundary phrasing comes from
  *      `watcher-core.ts#SAFETY_BOUNDARY_PROMPT`.
- *   2. Probe daemon ports 53827..53836 for a live /health response.
- *   3. Print the startup banner, register the SIGINT cleanup handler.
+ *   2. Probe daemon ports 53827..53836 for a daemon-shaped /health response.
+ *   3. Print the startup banner, register SIGINT/SIGTERM cleanup handlers.
  *   4. If --dry-run was passed, run the dry-run banner and exit.
- *   5. Otherwise loop: open a streaming fetch on `/events`, drive
- *      `parseSseFrame` over each chunk, hand `signal_added` payloads to
- *      `dispatchSignal` → `runDiscovery`. On transport error, sleep
- *      using `RECONNECT_BACKOFF_MS[attempt]` (capped at 30s) and retry.
+ *   5. Otherwise loop: open `/events`, drain pending signals while the
+ *      stream is subscribed, then drive `parseSseFrame` over each chunk.
+ *      `signal_added` payloads go to `dispatchSignal` → `runDiscovery`.
+ *      On transport error, sleep using `RECONNECT_BACKOFF_MS[attempt]`
+ *      (capped at 30s) and retry.
  *
  * Why is the testable logic factored into `src/watcher-core.ts`?
  *   Vitest's coverage scope is `src/**` — keeping I/O wiring out of
@@ -29,6 +30,7 @@ import { spawnSync, type ChildProcess } from "node:child_process";
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   RECONNECT_BACKOFF_MS,
   SAFETY_BOUNDARY_PROMPT,
@@ -49,6 +51,7 @@ const DEFAULT_DRAFT_TIMEOUT_MS = 60_000;
 const DEFAULT_SCRAPE_TIMEOUT_MS = 60_000;
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const SUMMARY_EVERY_N = 5;
+const DAEMON_IDENTITY_HEADER = "x-twitter-helper-daemon";
 
 interface KbLoadResult {
   systemPrompt: string;
@@ -102,19 +105,34 @@ function findClaudeBin(): string {
 
 async function probeDaemonPort(): Promise<number | null> {
   for (let port = PORT_START; port <= PORT_END; port += 1) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 500);
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 500);
       const res = await fetch(`http://localhost:${port}/health`, {
         signal: ctrl.signal,
       });
-      clearTimeout(timer);
-      if (res.ok) return port;
+      if (!res.ok) continue;
+      if (!hasDaemonIdentityHeader(res)) continue;
+      const body = (await res.json().catch(() => null)) as unknown;
+      if (isDaemonHealthBody(body)) return port;
     } catch {
       // try the next port
+    } finally {
+      clearTimeout(timer);
     }
   }
   return null;
+}
+
+function hasDaemonIdentityHeader(res: Response): boolean {
+  const value = res.headers.get(DAEMON_IDENTITY_HEADER);
+  return typeof value === "string" && value.length > 0;
+}
+
+function isDaemonHealthBody(body: unknown): boolean {
+  if (typeof body !== "object" || body === null) return false;
+  const rec = body as Record<string, unknown>;
+  return rec.status === "ok" && typeof rec.version === "string";
 }
 
 function parsePositiveNumberEnv(name: string, fallback: number): number {
@@ -136,6 +154,10 @@ async function drainPendingDiscoverySignals(
     counters: WatcherCounters;
     log: (line: string) => void;
     trackChild: (child: ChildProcess) => () => void;
+    processSignal: (
+      source: "pending_drain" | "sse",
+      signal: DispatchedSignal,
+    ) => Promise<void>;
   },
 ): Promise<boolean> {
   const pending: DispatchedSignal[] = [];
@@ -199,15 +221,7 @@ async function drainPendingDiscoverySignals(
   }
 
   for (const signal of pending) {
-    ctx.log(
-      JSON.stringify({
-        event: "signal_received",
-        source: "pending_drain",
-        id: signal.id,
-        kind: signal.kind,
-      }),
-    );
-    await runDiscovery(signal, ctx);
+    await ctx.processSignal("pending_drain", signal);
   }
   return true;
 }
@@ -247,12 +261,11 @@ async function main(): Promise<void> {
     kbSystemPrompt: kb.systemPrompt,
     // Use the local tsx binary to drive the scraper. Resolve relative to
     // the repo's node_modules so the watcher works regardless of CWD.
-    // eslint-disable-next-line no-undef
-    scrapeCommand: new URL("../../../node_modules/.bin/tsx", import.meta.url)
-      .pathname,
+    scrapeCommand: fileURLToPath(
+      new URL("../../../node_modules/.bin/tsx", import.meta.url),
+    ),
     scrapeArgs: [
-      // eslint-disable-next-line no-undef
-      new URL("./scrape-x-handles.ts", import.meta.url).pathname,
+      fileURLToPath(new URL("./scrape-x-handles.ts", import.meta.url)),
     ],
     claudeBin,
     summaryEveryN: SUMMARY_EVERY_N,
@@ -326,28 +339,68 @@ async function main(): Promise<void> {
           }),
         );
       }
-      const drainedPending = await drainPendingDiscoverySignals({
-        config,
-        counters,
-        log,
-        trackChild,
-      });
-      if (!drainedPending) {
-        throw new Error("pending signal drain failed");
+      const res = await fetch(`http://localhost:${config.daemonPort}/events`);
+      if (!res.ok || res.body === null) {
+        throw new Error(`/events returned ${res.status}`);
       }
+      const reader = res.body.getReader();
+      const seenSignalIds = new Set<string>();
+      const processSignal = async (
+        source: "pending_drain" | "sse",
+        signal: DispatchedSignal,
+      ): Promise<void> => {
+        if (seenSignalIds.has(signal.id)) {
+          log(
+            JSON.stringify({
+              event: "signal_skipped",
+              reason: "duplicate",
+              source,
+              id: signal.id,
+              kind: signal.kind,
+            }),
+          );
+          return;
+        }
+        seenSignalIds.add(signal.id);
+        log(
+          JSON.stringify({
+            event: "signal_received",
+            source,
+            id: signal.id,
+            kind: signal.kind,
+          }),
+        );
+        try {
+          await runDiscovery(signal, {
+            config,
+            counters,
+            log,
+            trackChild,
+          });
+        } catch (err) {
+          seenSignalIds.delete(signal.id);
+          throw err;
+        }
+      };
       log(
         JSON.stringify({
           event: "subscribed",
           message: `subscribed to /events on port ${config.daemonPort}`,
         }),
       );
-      const res = await fetch(`http://localhost:${config.daemonPort}/events`);
-      if (!res.ok || res.body === null) {
-        throw new Error(`/events returned ${res.status}`);
+      const drainedPending = await drainPendingDiscoverySignals({
+        config,
+        counters,
+        log,
+        trackChild,
+        processSignal,
+      });
+      if (!drainedPending) {
+        await reader.cancel().catch(() => {});
+        throw new Error("pending signal drain failed");
       }
       attempt = 0; // successful connect — reset backoff
 
-      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       while (true) {
@@ -358,19 +411,7 @@ async function main(): Promise<void> {
         buffer = out.remainder;
         for (const frame of out.frames) {
           await dispatchSignal(frame.data, async (signal) => {
-            log(
-              JSON.stringify({
-                event: "signal_received",
-                id: signal.id,
-                kind: signal.kind,
-              }),
-            );
-            await runDiscovery(signal, {
-              config,
-              counters,
-              log,
-              trackChild,
-            });
+            await processSignal("sse", signal);
           });
         }
       }

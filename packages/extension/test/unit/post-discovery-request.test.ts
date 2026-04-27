@@ -13,25 +13,29 @@ const PORT = 53827;
 const ENDPOINT = `http://localhost:${PORT}/signals`;
 const NEW_PORT = 53830;
 
-function stubFetch(impl: (url: string, init: RequestInit) => Promise<Response>): void {
-  vi.stubGlobal("fetch", vi.fn(impl as unknown as typeof fetch));
+function stubFetch(
+  impl: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>,
+): void {
+  vi.stubGlobal("fetch", vi.fn(impl) as unknown as typeof fetch);
 }
 
-function stubChromeInvalidatePort(port: number | null): void {
+function stubChromeInvalidatePort(port: number | null) {
+  const sendMessage = vi.fn(
+    (
+      message: { type: string },
+      cb: (response: { port: number | null }) => void,
+    ) => {
+      expect(message).toEqual({ type: "invalidate_port" });
+      cb({ port });
+    },
+  );
   vi.stubGlobal("chrome", {
     runtime: {
       lastError: undefined,
-      sendMessage: vi.fn(
-        (
-          message: { type: string },
-          cb: (response: { port: number | null }) => void,
-        ) => {
-          expect(message).toEqual({ type: "invalidate_port" });
-          cb({ port });
-        },
-      ),
+      sendMessage,
     },
   });
+  return sendMessage;
 }
 
 afterEach(() => {
@@ -44,7 +48,7 @@ describe("postDiscoveryRequest", () => {
     let capturedUrl = "";
     let capturedInit: RequestInit | undefined;
     stubFetch(async (url, init) => {
-      capturedUrl = url;
+      capturedUrl = String(url);
       capturedInit = init;
       return new Response(JSON.stringify({ id: "abc", status: "pending" }), {
         status: 201,
@@ -104,8 +108,9 @@ describe("postDiscoveryRequestWithStaleRecovery", () => {
   it("invalidates and retries once on a failed cached-port POST", async () => {
     const urls: string[] = [];
     stubFetch(async (url) => {
-      urls.push(url);
-      if (url === `http://localhost:${PORT}/signals`) {
+      const requestUrl = String(url);
+      urls.push(requestUrl);
+      if (requestUrl === `http://localhost:${PORT}/signals`) {
         throw new TypeError("stale port");
       }
       return new Response(JSON.stringify({ id: "abc", status: "pending" }), {
@@ -128,10 +133,12 @@ describe("postDiscoveryRequestWithStaleRecovery", () => {
     stubFetch(async () => {
       throw new TypeError("stale port");
     });
-    stubChromeInvalidatePort(null);
+    const sendMessage = stubChromeInvalidatePort(null);
 
     await expect(
       postDiscoveryRequestWithStaleRecovery(PORT),
     ).resolves.toEqual({ port: null, ok: null });
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage.mock.calls[0]?.[0]).toEqual({ type: "invalidate_port" });
   });
 });
