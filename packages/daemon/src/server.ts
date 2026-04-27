@@ -387,13 +387,31 @@ export async function buildServer(
     if (!parsed.success) {
       return reply.code(400).send(invalidRequest(parsed.error));
     }
-    const { kind, status } = parsed.data;
+    const { kind, status, limit, cursor } = parsed.data;
     const signals = Object.values(state.signals).filter((s) => {
       if (kind && s.kind !== kind) return false;
       if (status && s.status !== status) return false;
       return true;
+    }).sort((a, b) => {
+      const byCreated = a.created_at.localeCompare(b.created_at);
+      return byCreated === 0 ? a.id.localeCompare(b.id) : byCreated;
     });
-    return { signals };
+
+    let start = 0;
+    if (cursor) {
+      const cursorIndex = signals.findIndex((s) => s.id === cursor);
+      if (cursorIndex === -1) {
+        return reply.code(400).send({ error: "invalid_cursor" });
+      }
+      start = cursorIndex + 1;
+    }
+
+    const page = signals.slice(start, start + limit);
+    const hasNext = start + limit < signals.length;
+    return {
+      signals: page,
+      ...(hasNext ? { nextCursor: page[page.length - 1]?.id } : {}),
+    };
   });
 
   app.post<{ Params: { id: string } }>(
@@ -437,7 +455,10 @@ function invalidRequest(err: ZodError): {
 } {
   return {
     error: "invalid_request",
-    details: err.issues.map((i) => ({ path: i.path, message: i.message })),
+    details: err.issues.map((i) => ({
+      path: i.path.map((p) => (typeof p === "symbol" ? p.toString() : p)),
+      message: i.message,
+    })),
   };
 }
 

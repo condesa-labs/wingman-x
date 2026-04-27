@@ -11,7 +11,7 @@ yourself.
 
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org/)
 [![Manifest](https://img.shields.io/badge/chrome-MV3-blue)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Tests](https://img.shields.io/badge/tests-143%20unit%20%2F%2014%20e2e-success)](#tests-and-coverage)
+[![Tests](https://img.shields.io/badge/tests-214%20unit%20%2F%2014%20e2e-success)](#tests-and-coverage)
 [![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
 - 🤖 **Agent-agnostic** — daemon + extension speak a plain HTTP contract; swap
@@ -23,7 +23,7 @@ yourself.
   endpoint you configure there).
 - 🙋 **Human in the loop** — extension fills the native composer; Twitter's
   Tweet button remains the submit action. **No auto-posting, ever.**
-- 🧪 **Well-tested** — 143 unit/integration tests (95.29% daemon coverage) +
+- 🧪 **Well-tested** — 214 unit/integration tests (94.83% daemon coverage) +
   14 Playwright E2E specs against a localhost fixture. See
   [Tests and coverage](#tests-and-coverage).
 
@@ -394,10 +394,12 @@ parse them as a single token.
 | `TWITTER_HELPER_STATE_DIR` | `~/.twitter-helper` | Override state dir (useful for scratch / CI / per-profile). |
 | `TWITTER_HELPER_EXT_ALLOWED_IDS` | *(unset)* | Comma-separated Chrome extension IDs. When set, CORS ACAO is pinned to those extension origins and requests from other origins are 403'd. **Recommended for shared / hostile dev machines.** |
 | `DAEMON_PORT` | `53827` | Used by `agent-kit/scripts/*` to target the running daemon. |
-| `CDP_URL` | `http://localhost:9223` | Used by CDP-based agent scripts to attach to the browser. Must match `CHROME_REMOTE_DEBUGGING_PORT`. |
+| `CDP_URL` | `http://127.0.0.1:9223` | Used by CDP-based agent scripts to attach to the browser. Must match `CHROME_REMOTE_DEBUGGING_PORT`; prefer IPv4 loopback because some hosts resolve `localhost` to `::1` while Chrome binds the debugging port on IPv4 only. |
 | `CHROME_EXECUTABLE` | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` | Consumed by `npm run launch-chrome`. Linux: `/usr/bin/google-chrome`. Windows: `C:\Program Files\Google\Chrome\Application\chrome.exe`. |
 | `CHROME_PROFILE_DIR` | `$HOME/.twitter-helper/chrome-profile` | Dedicated user-data-dir where Twitter cookies live. **Not** your default Chrome profile. |
 | `CHROME_REMOTE_DEBUGGING_PORT` | `9223` | `--remote-debugging-port` passed to Chrome. |
+| `WATCHER_DRAFT_TIMEOUT_MS` | `60000` | Max time for one LLM draft before the watcher terminates that child process. |
+| `WATCHER_FETCH_TIMEOUT_MS` | `10000` | Max time for watcher POST/ack calls to the daemon before logging a network timeout. |
 
 ### Extension-side settings
 
@@ -438,10 +440,10 @@ Runs the full Dock fill-cycle against a **localhost fixture** (not real twitter.
 
 | Workspace | Unit / integration | E2E | Coverage gate |
 |---|---|---|---|
-| `@twitter-helper/daemon` | 53 (incl. 5 SSE) | — | ≥ 85% (currently **95.29%**) |
-| `@twitter-helper/agent-kit` | 16 | — | — |
-| `@twitter-helper/extension` | 74 unit | 14 Playwright E2E | Localhost fixture |
-| **Total** | **143** | **14** | — |
+| `@twitter-helper/daemon` | 65 (incl. 5 SSE) | — | ≥ 85% (currently **94.83%**) |
+| `@twitter-helper/agent-kit` | 58 | — | ≥ 85% branch coverage |
+| `@twitter-helper/extension` | 91 unit | 14 Playwright E2E | Localhost fixture |
+| **Total** | **214** | **14** | — |
 
 Tests live alongside each package (`<pkg>/test/` or `<pkg>/test/e2e/`). Run the full suite with `npm test` at the repo root.
 

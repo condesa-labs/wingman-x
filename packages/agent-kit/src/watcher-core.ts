@@ -15,6 +15,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { CandidateInputSchema, type CandidateInput } from "./candidate.js";
+import type { SignalKind } from "./signal.js";
 
 /**
  * Reconnect backoff sequence: 1s → 2s → 5s → 10s → 30s.
@@ -32,6 +33,8 @@ export const RECONNECT_BACKOFF_MS: readonly number[] = [
   30_000,
 ] as const;
 
+const DRAFT_TIMEOUT_KILL_GRACE_MS = 1_000;
+
 /**
  * The minimal Signal shape we need from the daemon's `signal_added`
  * event for downstream dispatch. We deliberately don't import the full
@@ -42,7 +45,7 @@ export const RECONNECT_BACKOFF_MS: readonly number[] = [
  */
 export interface DispatchedSignal {
   id: string;
-  kind: "discovery_requested";
+  kind: SignalKind;
   created_at: string;
 }
 
@@ -51,20 +54,19 @@ export type SignalHandler = (signal: DispatchedSignal) => Promise<void>;
 /**
  * Tracks per-run draft outcomes for the periodic stdout summary.
  *
- * The five "drafted_failed_*" buckets disambiguate the failure mode for
+ * The "drafted_failed_*" buckets disambiguate the failure mode for
  * downstream operations. The spec lists `drafts_attempted, drafted_ok,
  * drafted_failed_timeout, drafted_failed_invalid_json,
  * drafted_failed_exit` for the summary line; we add `drafted_failed_empty`
- * internally because a child that exits 0 with empty stdout is a
- * distinct failure from a non-zero-exit (`drafted_failed_exit`) and we
- * want it visible in the structured log. The summary line still
- * surfaces only the spec-named fields.
+ * and `drafted_failed_zod` internally because empty stdout and schema
+ * validation failures are distinct from JSON parse errors.
  */
 export interface WatcherCounters {
   drafts_attempted: number;
   drafted_ok: number;
   drafted_failed_timeout: number;
   drafted_failed_invalid_json: number;
+  drafted_failed_zod: number;
   drafted_failed_exit: number;
   drafted_failed_empty: number;
 }
@@ -72,6 +74,7 @@ export interface WatcherCounters {
 export interface WatcherConfig {
   daemonPort: number;
   draftTimeoutMs: number;
+  fetchTimeoutMs: number;
   /** Composed system prompt: KB tone + library content + safety boundary. */
   kbSystemPrompt: string;
   /** Scraper child command — typically the path to `tsx`. */
@@ -215,7 +218,6 @@ async function runScraper(ctx: RunContext): Promise<ScrapedTweet[] | null> {
   });
   const exitCode: number | null = await new Promise((resolve) => {
     child.once("close", (code) => resolve(code));
-    child.once("exit", (code) => resolve(code));
   });
   untrack?.();
   if (exitCode !== 0) {
@@ -355,7 +357,7 @@ export async function draftReply(
 
   const result = CandidateInputSchema.safeParse(parsed);
   if (!result.success) {
-    if (counters) counters.drafted_failed_invalid_json += 1;
+    if (counters) counters.drafted_failed_zod += 1;
     log(
       JSON.stringify({
         event: "draft_failed",
@@ -377,33 +379,57 @@ interface RaceResult {
 }
 
 /**
- * Wait for the child to exit OR the per-draft timeout to elapse, whichever
- * comes first. On timeout we send SIGTERM (NOT SIGKILL — the spec wants the
- * child to clean up) and continue.
+ * Wait for the child close event OR the per-draft timeout. On timeout we
+ * request graceful shutdown with SIGTERM, then escalate to SIGKILL after a
+ * short grace period if the child ignored the first signal.
  */
 function raceWithTimeout(
   child: ChildProcess,
   timeoutMs: number,
 ): Promise<RaceResult> {
   return new Promise<RaceResult>((resolve) => {
-    let settled = false;
+    let resolved = false;
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (result: RaceResult): void => {
+      if (resolved) return;
+      resolved = true;
+      if (timer) clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      child.off("close", onClose);
+      resolve(result);
+    };
+
     const onClose = (code: number | null): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ kind: "exit", exitCode: code });
+      finish(
+        timedOut
+          ? { kind: "timeout", exitCode: null }
+          : { kind: "exit", exitCode: code },
+      );
     };
     child.once("close", onClose);
-    child.once("exit", onClose);
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
+
+    timer = setTimeout(() => {
+      if (resolved) return;
+      timedOut = true;
       try {
         child.kill("SIGTERM");
       } catch {
         // already dead
       }
-      resolve({ kind: "timeout", exitCode: null });
+
+      killTimer = setTimeout(() => {
+        if (resolved) return;
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // already dead
+        }
+        finish({ kind: "timeout", exitCode: null });
+      }, DRAFT_TIMEOUT_KILL_GRACE_MS);
+      killTimer.unref?.();
     }, timeoutMs);
   });
 }
@@ -418,6 +444,7 @@ async function postCandidate(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ candidates: [candidate] }),
+      signal: AbortSignal.timeout(ctx.config.fetchTimeoutMs),
     });
     if (!res.ok) {
       ctx.log(
@@ -446,7 +473,10 @@ async function postCandidate(
 async function ackSignalSafe(id: string, ctx: RunContext): Promise<void> {
   const url = `http://localhost:${ctx.config.daemonPort}/signals/${encodeURIComponent(id)}/ack`;
   try {
-    const res = await fetch(url, { method: "POST" });
+    const res = await fetch(url, {
+      method: "POST",
+      signal: AbortSignal.timeout(ctx.config.fetchTimeoutMs),
+    });
     if (!res.ok) {
       ctx.log(
         JSON.stringify({
@@ -475,6 +505,7 @@ function emitSummary(ctx: RunContext): void {
       drafted_ok: ctx.counters.drafted_ok,
       drafted_failed_timeout: ctx.counters.drafted_failed_timeout,
       drafted_failed_invalid_json: ctx.counters.drafted_failed_invalid_json,
+      drafted_failed_zod: ctx.counters.drafted_failed_zod,
       drafted_failed_exit: ctx.counters.drafted_failed_exit,
     }),
   );

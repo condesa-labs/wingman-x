@@ -9,7 +9,7 @@ import {
 } from "../src/index.js";
 
 const sampleServerSignal = (overrides: Record<string, unknown> = {}) => ({
-  id: "11111111-2222-3333-4444-555555555555",
+  id: "11111111-2222-4333-8444-555555555555",
   kind: "discovery_requested" as const,
   status: "pending" as const,
   created_at: "2026-04-22T10:00:00.000Z",
@@ -276,6 +276,22 @@ describe("timeout behaviour", () => {
     const client = createDaemonClient(PORT, { fetch: fetchMock as unknown as typeof fetch });
     await client.getCandidates();
   });
+
+  it("treats an immediate AbortError from fetch as a timeout", async () => {
+    const fetchMock = vi.fn(async () => {
+      const err = new Error("aborted");
+      (err as Error & { name: string }).name = "AbortError";
+      throw err;
+    });
+    const client = createDaemonClient(PORT, {
+      fetch: fetchMock as unknown as typeof fetch,
+      timeoutMs: 250,
+    });
+
+    await expect(client.getCandidates()).rejects.toBeInstanceOf(
+      DaemonTimeoutError,
+    );
+  });
 });
 
 describe("single-attempt semantics", () => {
@@ -341,8 +357,51 @@ describe("signals: client methods", () => {
     expect(out).toHaveLength(1);
   });
 
+  it("listSignals with only `status` sends just status=... in the query string", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      expect(url).toBe(`http://localhost:${PORT}/signals?status=pending`);
+      return okJson({ signals: [sampleServerSignal()] });
+    });
+    const client = createDaemonClient(PORT, {
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    const out = await client.listSignals({ status: "pending" });
+    expect(out).toHaveLength(1);
+  });
+
+  it("listSignals with kind and status preserves the query string contract", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      expect(url).toBe(
+        `http://localhost:${PORT}/signals?kind=discovery_requested&status=pending`,
+      );
+      return okJson({ signals: [sampleServerSignal()] });
+    });
+    const client = createDaemonClient(PORT, {
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    const out = await client.listSignals({
+      kind: "discovery_requested",
+      status: "pending",
+    });
+    expect(out).toHaveLength(1);
+  });
+
+  it("listSignals includes limit and cursor when provided", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      expect(url).toBe(
+        `http://localhost:${PORT}/signals?limit=10&cursor=cursor-1`,
+      );
+      return okJson({ signals: [], nextCursor: "cursor-2" });
+    });
+    const client = createDaemonClient(PORT, {
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    const out = await client.listSignals({ limit: 10, cursor: "cursor-1" });
+    expect(out).toEqual([]);
+  });
+
   it("ackSignal POSTs to /signals/:id/ack and returns the acked Signal", async () => {
-    const id = "11111111-2222-3333-4444-555555555555";
+    const id = "11111111-2222-4333-8444-555555555555";
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe(
         `http://localhost:${PORT}/signals/${encodeURIComponent(id)}/ack`,

@@ -126,7 +126,37 @@ describe("signals endpoints", () => {
       expect(acked.json().signals).toHaveLength(1);
 
       const all = await app.inject({ method: "GET", url: "/signals" });
-      expect(all.json().signals).toHaveLength(2);
+      // No status query defaults to pending so acked audit rows do not
+      // dominate the unbounded happy path.
+      expect(all.json().signals).toHaveLength(1);
+    });
+
+    it("bounds results with limit/cursor and returns a nextCursor", async () => {
+      app = await buildServer();
+
+      for (let i = 0; i < 3; i += 1) {
+        await app.inject({
+          method: "POST",
+          url: "/signals",
+          payload: { kind: "discovery_requested", meta: { index: i } },
+        });
+      }
+
+      const firstPage = await app.inject({
+        method: "GET",
+        url: "/signals?limit=2",
+      });
+      expect(firstPage.statusCode).toBe(200);
+      expect(firstPage.json().signals).toHaveLength(2);
+      expect(typeof firstPage.json().nextCursor).toBe("string");
+
+      const secondPage = await app.inject({
+        method: "GET",
+        url: `/signals?limit=2&cursor=${encodeURIComponent(firstPage.json().nextCursor)}`,
+      });
+      expect(secondPage.statusCode).toBe(200);
+      expect(secondPage.json().signals).toHaveLength(1);
+      expect(secondPage.json().nextCursor).toBeUndefined();
     });
 
     it("rejects unknown query values with 400", async () => {
@@ -214,27 +244,68 @@ describe("signals endpoints", () => {
 
       const controller = new AbortController();
       const frames: string[] = [];
+      let sawOpen = false;
+      let sawSignal = false;
+      let resolveOpen!: () => void;
+      let resolveSignal!: () => void;
+      let rejectOpen!: (err: Error) => void;
+      let rejectSignal!: (err: Error) => void;
+      const opened = new Promise<void>((resolve, reject) => {
+        resolveOpen = resolve;
+        rejectOpen = reject;
+      });
+      const signalSeen = new Promise<void>((resolve, reject) => {
+        resolveSignal = resolve;
+        rejectSignal = reject;
+      });
+      const withDeadline = async (p: Promise<void>, label: string): Promise<void> => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            p,
+            new Promise<void>((_resolve, reject) => {
+              timer = setTimeout(
+                () => reject(new Error(`${label} timeout`)),
+                2_000,
+              );
+            }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      };
 
       const streamDone = (async () => {
-        const res = await fetch(`http://127.0.0.1:${port}/events`, {
-          signal: controller.signal,
-        });
-        const reader = res.body?.getReader();
-        if (!reader) return;
-        const decoder = new TextDecoder();
         try {
+          const res = await fetch(`http://127.0.0.1:${port}/events`, {
+            signal: controller.signal,
+          });
+          const reader = res.body?.getReader();
+          if (!reader) throw new Error("missing SSE body");
+          const decoder = new TextDecoder();
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
             frames.push(decoder.decode(value));
+            const joined = frames.join("");
+            if (!sawOpen && joined.includes(":ok")) {
+              sawOpen = true;
+              resolveOpen();
+            }
+            if (!sawSignal && joined.includes('"type":"signal_added"')) {
+              sawSignal = true;
+              resolveSignal();
+            }
           }
-        } catch {
-          // Expected on abort.
+        } catch (err) {
+          if (!controller.signal.aborted) {
+            rejectOpen(err as Error);
+            rejectSignal(err as Error);
+          }
         }
       })();
 
-      // Wait for the initial ":ok\n\n" to confirm the stream opened.
-      await new Promise((r) => setTimeout(r, 100));
+      await withDeadline(opened, "SSE open");
 
       await fetch(`http://127.0.0.1:${port}/signals`, {
         method: "POST",
@@ -242,8 +313,7 @@ describe("signals endpoints", () => {
         body: JSON.stringify({ kind: "discovery_requested" }),
       });
 
-      // Give the publisher a tick to flush.
-      await new Promise((r) => setTimeout(r, 150));
+      await withDeadline(signalSeen, "signal_added frame");
       controller.abort();
       await streamDone;
 

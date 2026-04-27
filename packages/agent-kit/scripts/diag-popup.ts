@@ -2,7 +2,7 @@
 import "../../../scripts/load-env.mjs";
 import { chromium } from "playwright";
 
-const CDP_URL = process.env.CDP_URL ?? "http://localhost:9223";
+const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9223";
 const DAEMON_URL = process.env.DAEMON_URL ?? "http://localhost:53827";
 const EXT_ID = process.env.EXT_ID ?? "jlbbggcnjfnckpfommnbonnobhoeapdh";
 

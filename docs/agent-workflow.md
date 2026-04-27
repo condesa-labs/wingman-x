@@ -67,9 +67,9 @@ order (or, if it knows the port from an earlier run, reads it from
 7. **Ack pulled signals.** For each signal id captured in step 2, call
    `client.ackSignal(id)`. This transitions the signal from `pending`
    to `acked` and leaves a timestamped audit trail in `state.json`.
-   Skip this step if step 6 produced zero candidates — the user's
-   request was not fulfilled yet, so leaving the signal `pending` lets
-   the next invocation pick it up.
+   Ack every run, including zero-candidate runs and degraded scraper
+   runs, so the queue does not hot-loop on the same request forever. The
+   user can click **Request discovery** again to retry.
 8. **Stop.** The MVP is explicit-invocation only — the agent does not idle
    or poll. The user reviews the candidates in the extension popup / Dock
    and explicitly accepts / dismisses each one.
@@ -84,7 +84,7 @@ the user explicitly asks.
 The extension's popup has a **Request discovery** button. Clicking it
 POSTs a pull-signal to the daemon:
 
-```
+```http
 POST /signals { "kind": "discovery_requested" }
 → Signal { id, kind, status: "pending", created_at }
 ```
@@ -98,17 +98,17 @@ explicitly asked.
 
 - **On start:** `client.listSignals({ kind: "discovery_requested",
   status: "pending" })`. Remember the IDs.
-- **After a successful POST /candidates:** ack each ID via
-  `client.ackSignal(id)`. Ack is idempotent — re-acking is a no-op and
-  returns the existing record.
-- **On zero-candidate runs:** do NOT ack. The user's request was not
-  fulfilled, so leaving the signal `pending` lets the next run see it.
+- **After the discovery run finishes:** ack each ID via `client.ackSignal(id)`.
+  Ack is idempotent — re-acking is a no-op and returns the existing record.
+- **On zero-candidate runs:** ack anyway. Leaving a degraded run
+  `pending` can hot-loop the discovery queue. The user re-clicks
+  **Request discovery** to retry.
 - **Do not poll.** Signals are checked exactly once per invocation, in
   step 2.
 
 ### Signal lifecycle
 
-```
+```text
 POST /signals → status="pending", created_at set
 POST /signals/:id/ack → status="acked", acked_at set, permanently retained
 ```
@@ -194,7 +194,7 @@ existing `created_at` on a re-POST.
 
 The knowledge base lives at `~/.twitter-helper/kb/`:
 
-```
+```text
 ~/.twitter-helper/kb/
 ├── tone.md                   # free-form voice guide
 └── library/

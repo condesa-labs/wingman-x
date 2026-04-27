@@ -6,14 +6,14 @@
  * stdout.
  *
  * Env:
- *   CDP_URL       — default http://localhost:9223
+ *   CDP_URL       — default http://127.0.0.1:9223
  *   MAX_SCROLLS   — bounded scroll iterations, default 80
  *   SCROLL_WAIT   — ms between scrolls, default 700
  */
 import "../../../scripts/load-env.mjs";
 import { chromium, type Page } from "playwright";
 
-const CDP_URL = process.env.CDP_URL ?? "http://localhost:9223";
+const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9223";
 const MAX_SCROLLS = Number(process.env.MAX_SCROLLS ?? "80");
 const SCROLL_WAIT = Number(process.env.SCROLL_WAIT ?? "700");
 

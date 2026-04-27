@@ -57,8 +57,8 @@ export interface DaemonClient {
    * Pull-signal surface. The extension's "Request discovery" button
    * fires `postSignal({ kind: "discovery_requested" })`; the agent's
    * discover skill runs `listSignals({ kind: "discovery_requested",
-   * status: "pending" })` on start-up and `ackSignal(id)` after a
-   * successful run.
+   * status: "pending" })` on start-up and `ackSignal(id)` after handling
+   * the run.
    */
   postSignal(input: SignalInput): Promise<Signal>;
   listSignals(query?: SignalsQuery): Promise<Signal[]>;
@@ -191,6 +191,8 @@ export function createDaemonClient(
       const qs = new URLSearchParams();
       if (query.kind) qs.set("kind", query.kind);
       if (query.status) qs.set("status", query.status);
+      if (query.limit !== undefined) qs.set("limit", String(query.limit));
+      if (query.cursor) qs.set("cursor", query.cursor);
       const suffix = qs.toString();
       const res = await request(`/signals${suffix ? `?${suffix}` : ""}`);
       await expectOk(res);

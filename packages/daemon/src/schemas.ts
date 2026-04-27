@@ -102,7 +102,7 @@ export const ActionBodySchema = z.object({
  *
  * The initial (and only) kind is `discovery_requested`: the popup's
  * "Request discovery" button fires it, the agent's discover skill acks
- * it after a successful run. `meta` is reserved for future filter
+ * it after handling the run. `meta` is reserved for future filter
  * parameters (e.g., `{tier: "1"}`) without breaking the schema.
  */
 export const SignalKindEnum = z.enum(["discovery_requested"]);
@@ -130,18 +130,28 @@ export const SignalInputSchema = z.object({
 export type SignalInput = z.infer<typeof SignalInputSchema>;
 
 export const SignalSchema = z.object({
-  id: z.string().uuid(),
+  id: z.uuid(),
   kind: SignalKindEnum,
   status: SignalStatusEnum,
   meta: SignalMetaSchema.optional(),
-  created_at: z.string().datetime(),
-  acked_at: z.string().datetime().optional(),
+  created_at: z.iso.datetime(),
+  acked_at: z.iso.datetime().optional(),
 });
 export type Signal = z.infer<typeof SignalSchema>;
 
+export const DEFAULT_SIGNALS_LIMIT = 50;
+export const MAX_SIGNALS_LIMIT = 100;
+
 export const SignalsQuerySchema = z.object({
   kind: SignalKindEnum.optional(),
-  status: SignalStatusEnum.optional(),
+  status: SignalStatusEnum.optional().default("pending"),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_SIGNALS_LIMIT)
+    .default(DEFAULT_SIGNALS_LIMIT),
+  cursor: z.string().min(1).optional(),
 });
 
 export const StateFileSchema = z.object({

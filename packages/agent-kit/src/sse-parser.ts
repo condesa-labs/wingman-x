@@ -65,7 +65,7 @@ function parseOneFrame(raw: string): ParsedFrame {
     // Comments per SSE spec — ignore the entire line.
     if (line.startsWith(":")) continue;
     if (line.startsWith("data:")) {
-      // Strip the leading colon and exactly ONE optional space.
+      // Strip the leading "data:" prefix and exactly ONE optional space.
       let value = line.slice(5);
       if (value.startsWith(" ")) value = value.slice(1);
       dataLines.push(value);

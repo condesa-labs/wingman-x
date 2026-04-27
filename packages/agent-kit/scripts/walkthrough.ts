@@ -9,7 +9,7 @@ import "../../../scripts/load-env.mjs";
 import { chromium, type Page } from "playwright";
 import { mkdirSync } from "node:fs";
 
-const CDP_URL = process.env.CDP_URL ?? "http://localhost:9223";
+const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9223";
 const TWEET_URL =
   process.env.TWEET_URL ??
   "https://x.com/hyperagent/status/2044086411951808699";

@@ -11,6 +11,8 @@
  *   never need to know about HTTP.
  */
 
+import type { SignalKind } from "./schemas.js";
+
 export interface CandidateAddedEvent {
   type: "candidate_added";
   tweet_id: string;
@@ -27,7 +29,7 @@ export interface CandidateAddedEvent {
 export interface SignalAddedEvent {
   type: "signal_added";
   id: string;
-  kind: "discovery_requested";
+  kind: SignalKind;
   created_at: string;
 }
 

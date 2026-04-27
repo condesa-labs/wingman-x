@@ -29,21 +29,24 @@ export const SignalInputSchema = z.object({
 export type SignalInput = z.infer<typeof SignalInputSchema>;
 
 export const SignalSchema = z.object({
-  id: z.string().uuid(),
+  id: z.uuid(),
   kind: SignalKindSchema,
   status: SignalStatusSchema,
   meta: SignalMetaSchema.optional(),
-  created_at: z.string().datetime(),
-  acked_at: z.string().datetime().optional(),
+  created_at: z.iso.datetime(),
+  acked_at: z.iso.datetime().optional(),
 });
 export type Signal = z.infer<typeof SignalSchema>;
 
 export interface SignalsQuery {
   kind?: SignalKind;
   status?: SignalStatus;
+  limit?: number;
+  cursor?: string;
 }
 
 export const SignalsListResponseSchema = z.object({
   signals: z.array(SignalSchema),
+  nextCursor: z.string().optional(),
 });
 export type SignalsListResponse = z.infer<typeof SignalsListResponseSchema>;

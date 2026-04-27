@@ -7,7 +7,7 @@
  * emit a single JSON array of RawTweet tuples to stdout.
  *
  * Env:
- *   CDP_URL         — default http://localhost:9223
+ *   CDP_URL         — default http://127.0.0.1:9223
  *   HANDLES_FILE    — default ~/.twitter-helper/kb/selected-handles.txt
  *   PER_HANDLE      — how many tweets per handle, default 3
  *   PER_HANDLE_MS   — per-handle time budget, default 8000
@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-const CDP_URL = process.env.CDP_URL ?? "http://localhost:9223";
+const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9223";
 const HANDLES_FILE =
   process.env.HANDLES_FILE ??
   resolve(homedir(), ".twitter-helper/kb/selected-handles.txt");

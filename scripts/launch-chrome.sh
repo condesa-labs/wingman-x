@@ -11,8 +11,39 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Real env > .env.local > .env. Source in lowest-priority-first order so
-# later `source` calls only set vars that weren't already exported.
+# Real env > .env.local > .env. Source dotenv files in
+# lowest-priority-first order, then restore values that were already set by
+# the caller's shell so one-off overrides keep winning.
+ENV_KEYS=()
+
+remember_env_keys() {
+  local f="$1"
+  [[ -f "$f" ]] || return 0
+  local line key seen set_var value_var existing
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*= ]] || continue
+    key="${BASH_REMATCH[2]}"
+    seen=0
+    for existing in "${ENV_KEYS[@]}"; do
+      if [[ "$existing" == "$key" ]]; then
+        seen=1
+        break
+      fi
+    done
+    [[ "$seen" == "1" ]] && continue
+
+    ENV_KEYS+=("$key")
+    set_var="__TWH_ORIG_SET_${key}"
+    value_var="__TWH_ORIG_VALUE_${key}"
+    if [[ -z "${!key+x}" ]]; then
+      printf -v "$set_var" '%s' "0"
+    else
+      printf -v "$set_var" '%s' "1"
+      printf -v "$value_var" '%s' "${!key}"
+    fi
+  done < "$f"
+}
+
 load_envfile() {
   local f="$1"
   [[ -f "$f" ]] || return 0
@@ -21,8 +52,24 @@ load_envfile() {
   source "$f"
   set +a
 }
+
+restore_real_env_overrides() {
+  local key set_var value_var
+  for key in "${ENV_KEYS[@]}"; do
+    set_var="__TWH_ORIG_SET_${key}"
+    value_var="__TWH_ORIG_VALUE_${key}"
+    if [[ "${!set_var}" == "1" ]]; then
+      export "$key=${!value_var}"
+    fi
+    unset "$set_var" "$value_var"
+  done
+}
+
+remember_env_keys "$REPO_ROOT/.env"
+remember_env_keys "$REPO_ROOT/.env.local"
 load_envfile "$REPO_ROOT/.env"
 load_envfile "$REPO_ROOT/.env.local"
+restore_real_env_overrides
 
 CHROME_EXECUTABLE="${CHROME_EXECUTABLE:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 CHROME_PROFILE_DIR="${CHROME_PROFILE_DIR:-$HOME/.twitter-helper/chrome-profile}"

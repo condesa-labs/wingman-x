@@ -44,6 +44,7 @@ const KB_DIR = join(homedir(), ".twitter-helper", "kb");
 const PORT_START = 53827;
 const PORT_END = 53836;
 const DEFAULT_DRAFT_TIMEOUT_MS = 60_000;
+const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const SUMMARY_EVERY_N = 5;
 
 interface KbLoadResult {
@@ -113,6 +114,19 @@ async function probeDaemonPort(): Promise<number | null> {
   return null;
 }
 
+function parsePositiveNumberEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+
+  const parsed = Number(raw.trim());
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+
+  process.stderr.write(
+    `watcher warning: ${name}=${JSON.stringify(raw)} is invalid; using ${fallback}\n`,
+  );
+  return fallback;
+}
+
 async function main(): Promise<void> {
   const isDryRun = process.argv.includes("--dry-run");
 
@@ -121,23 +135,32 @@ async function main(): Promise<void> {
 
   // For dry-run we don't probe, so we use the canonical primary port for
   // the banner. CP06 manual verify explicitly states 53827.
-  const port = isDryRun ? PORT_START : (await probeDaemonPort()) ?? PORT_START;
+  const probedPort = isDryRun ? PORT_START : await probeDaemonPort();
+  if (probedPort === null) {
+    throw new Error(`daemon /health unreachable on ${PORT_START}..${PORT_END}`);
+  }
+  const port = probedPort;
 
-  const draftTimeoutMs = Number(
-    process.env.WATCHER_DRAFT_TIMEOUT_MS ?? DEFAULT_DRAFT_TIMEOUT_MS,
+  const draftTimeoutMs = parsePositiveNumberEnv(
+    "WATCHER_DRAFT_TIMEOUT_MS",
+    DEFAULT_DRAFT_TIMEOUT_MS,
+  );
+  const fetchTimeoutMs = parsePositiveNumberEnv(
+    "WATCHER_FETCH_TIMEOUT_MS",
+    DEFAULT_FETCH_TIMEOUT_MS,
   );
 
   const config: WatcherConfig = {
     daemonPort: port,
     draftTimeoutMs,
+    fetchTimeoutMs,
     kbSystemPrompt: kb.systemPrompt,
-    scrapeCommand: process.execPath, // node — invoke tsx via node loader path below
+    // Use the local tsx binary to drive the scraper. Resolve relative to
+    // the repo's node_modules so the watcher works regardless of CWD.
+    // eslint-disable-next-line no-undef
+    scrapeCommand: new URL("../../../node_modules/.bin/tsx", import.meta.url)
+      .pathname,
     scrapeArgs: [
-      // Use the local tsx binary to drive the scraper. Resolve relative
-      // to the repo's node_modules so the watcher works regardless of
-      // CWD.
-      // eslint-disable-next-line no-undef
-      new URL("../../../node_modules/.bin/tsx", import.meta.url).pathname,
       // eslint-disable-next-line no-undef
       new URL("./scrape-x-handles.ts", import.meta.url).pathname,
     ],
@@ -146,9 +169,6 @@ async function main(): Promise<void> {
     toneBytes: kb.toneBytes,
     libraryFiles: kb.libraryFiles,
   };
-
-  // Replace `scrapeCommand` with tsx directly — simpler than node + tsx args.
-  config.scrapeCommand = config.scrapeArgs.shift()!;
 
   // Banner first so it's visible even if dry-run exits immediately.
   process.stdout.write(
@@ -188,6 +208,7 @@ async function main(): Promise<void> {
     drafted_ok: 0,
     drafted_failed_timeout: 0,
     drafted_failed_invalid_json: 0,
+    drafted_failed_zod: 0,
     drafted_failed_exit: 0,
     drafted_failed_empty: 0,
   };
@@ -200,6 +221,19 @@ async function main(): Promise<void> {
   let attempt = 0;
   while (true) {
     try {
+      const probed = await probeDaemonPort();
+      if (probed === null) {
+        throw new Error(`daemon /health unreachable on ${PORT_START}..${PORT_END}`);
+      }
+      if (probed !== config.daemonPort) {
+        config.daemonPort = probed;
+        log(
+          JSON.stringify({
+            event: "daemon_port_changed",
+            daemon_port: probed,
+          }),
+        );
+      }
       log(
         JSON.stringify({
           event: "subscribed",

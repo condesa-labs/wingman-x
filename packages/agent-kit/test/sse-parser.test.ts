@@ -67,11 +67,19 @@ describe("parseSseFrame", () => {
     expect(out.remainder).toBe("data: par");
   });
 
-  it("preserves leading whitespace stripping (a single space after `data:`)", () => {
+  it("strips at most one leading space after `data:`", () => {
     // Per SSE spec, exactly one optional space after the colon is stripped.
     const out = parseSseFrame("data: hello\n\n");
     expect(out.frames[0]!.data).toBe("hello");
     const out2 = parseSseFrame("data:hello\n\n");
     expect(out2.frames[0]!.data).toBe("hello");
+    const out3 = parseSseFrame("data:  hello\n\n");
+    expect(out3.frames[0]!.data).toBe(" hello");
+  });
+
+  it("treats CRLF-only frames as incomplete because the parser is LF-delimited", () => {
+    const out = parseSseFrame("data: x\r\n\r\n");
+    expect(out.frames).toEqual([]);
+    expect(out.remainder).toBe("data: x\r\n\r\n");
   });
 });
