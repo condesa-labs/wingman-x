@@ -137,7 +137,7 @@ async function drainPendingDiscoverySignals(
     log: (line: string) => void;
     trackChild: (child: ChildProcess) => () => void;
   },
-): Promise<void> {
+): Promise<boolean> {
   const pending: DispatchedSignal[] = [];
   let cursor: string | undefined;
 
@@ -161,7 +161,7 @@ async function drainPendingDiscoverySignals(
             status: res.status,
           }),
         );
-        return;
+        return false;
       }
 
       const parsed = SignalsListResponseSchema.safeParse(await res.json());
@@ -173,7 +173,7 @@ async function drainPendingDiscoverySignals(
             zod_issues: parsed.error.issues.map((i) => i.path.join(".")),
           }),
         );
-        return;
+        return false;
       }
 
       for (const signal of parsed.data.signals) {
@@ -194,7 +194,7 @@ async function drainPendingDiscoverySignals(
           message: (err as Error).message ?? String(err),
         }),
       );
-      return;
+      return false;
     }
   }
 
@@ -209,6 +209,7 @@ async function drainPendingDiscoverySignals(
     );
     await runDiscovery(signal, ctx);
   }
+  return true;
 }
 
 async function main(): Promise<void> {
@@ -278,9 +279,9 @@ async function main(): Promise<void> {
     return () => inflightChildren.delete(child);
   };
 
-  process.on("SIGINT", () => {
+  const shutdown = (sig: NodeJS.Signals): void => {
     process.stdout.write(
-      `\nwatcher: SIGINT received — terminating ${inflightChildren.size} child(ren)\n`,
+      `\nwatcher: ${sig} received — terminating ${inflightChildren.size} child(ren)\n`,
     );
     for (const c of inflightChildren) {
       try {
@@ -290,7 +291,9 @@ async function main(): Promise<void> {
       }
     }
     process.exit(0);
-  });
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 
   const counters: WatcherCounters = {
     drafts_attempted: 0,
@@ -323,12 +326,15 @@ async function main(): Promise<void> {
           }),
         );
       }
-      await drainPendingDiscoverySignals({
+      const drainedPending = await drainPendingDiscoverySignals({
         config,
         counters,
         log,
         trackChild,
       });
+      if (!drainedPending) {
+        throw new Error("pending signal drain failed");
+      }
       log(
         JSON.stringify({
           event: "subscribed",

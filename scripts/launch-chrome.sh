@@ -88,7 +88,7 @@ fi
 # If something already listens on the target port, assume Chrome is up and
 # exit successfully — re-launching would fail anyway with a second instance
 # targeting the same user-data-dir.
-if curl -s --max-time 1 "http://localhost:${CHROME_REMOTE_DEBUGGING_PORT}/json/version" >/dev/null 2>&1; then
+if curl -s --max-time 1 "http://127.0.0.1:${CHROME_REMOTE_DEBUGGING_PORT}/json/version" >/dev/null 2>&1; then
   echo "chrome already listening on :${CHROME_REMOTE_DEBUGGING_PORT} — nothing to do"
   exit 0
 fi
