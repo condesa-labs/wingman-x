@@ -129,6 +129,7 @@ describe("atomic persistence", () => {
 
     saveState({
       candidates: {},
+      signals: {},
       config: { kb_dir: "/tmp/fake-kb" },
       port: 53827,
     });
@@ -147,6 +148,7 @@ describe("atomic persistence", () => {
 
     saveState({
       candidates: {},
+      signals: {},
       config: { kb_dir: "/fake" },
       port: 53827,
     });

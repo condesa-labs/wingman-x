@@ -23,16 +23,35 @@ import {
   fetchCandidates,
   getPortFromWorker,
   invalidatePortAndRediscover,
+  postDiscoveryRequestWithStaleRecovery,
   postDismiss,
   type PopupCandidate,
 } from "./daemon-client.js";
 import { renderCard } from "./candidate-card.js";
 import { isActiveCandidate } from "../candidate-filter.js";
 import { getSettings, setSettings } from "./settings.js";
+import {
+  DISCOVERY_STATUS,
+  computeDiscoveryOutcome,
+  statusTestidForButton,
+} from "./discovery-status.js";
 
 type RootState = "loading" | "list" | "empty" | "error";
 
 const LOG_PREFIX = "[twitter-helper]";
+
+/**
+ * Cached port from the last successful runFlow(). The Request-discovery
+ * button reads this when the user clicks — the buttons live inside the
+ * list / empty state sections, both of which only become visible after
+ * port resolution, so the value is always populated by the time a click
+ * can fire. Held at module scope so button handlers don't need to
+ * re-resolve through the worker on every click.
+ */
+let currentPort: number | null = null;
+
+/** How long to lock the Request-discovery button after a click. */
+const REQUEST_COOLDOWN_MS = 3000;
 
 /**
  * Session-storage key for the id of the last helper tab we opened.
@@ -268,6 +287,7 @@ async function runFlow(): Promise<void> {
     setState("error");
     return;
   }
+  currentPort = port;
   setPortFooter(port);
 
   const container = document.querySelector<HTMLElement>(
@@ -345,8 +365,82 @@ async function wireReuseTabToggle(): Promise<void> {
   });
 }
 
+/**
+ * Wire the "Request discovery" buttons (one in each of list + empty
+ * state). Clicking POSTs a `discovery_requested` signal to the daemon —
+ * the agent's discover skill reads pending signals on its next session
+ * and prioritises this run. Success / failure flashes into the adjacent
+ * `.request-status` div; the button is disabled for
+ * `REQUEST_COOLDOWN_MS` to keep the user from spamming the signal list.
+ */
+function wireRequestDiscovery(): void {
+  const buttons = document.querySelectorAll<HTMLButtonElement>(
+    "[data-testid='twh-request-discovery-empty']," +
+      " [data-testid='twh-request-discovery-list']",
+  );
+  for (const btn of Array.from(buttons)) {
+    const buttonTestid = btn.dataset.testid ?? "";
+    const statusTestid = statusTestidForButton(buttonTestid);
+    // Resolve the status div by derived testid rather than DOM siblings —
+    // robust to whitespace / comment nodes between the button and div in
+    // the rendered HTML. Falls back to nextElementSibling so we never
+    // silently lose the status output if a future markup tweak breaks
+    // the testid pattern.
+    const statusEl =
+      (statusTestid !== null
+        ? document.querySelector<HTMLElement>(
+            `[data-testid='${statusTestid}']`,
+          )
+        : null) ??
+      (btn.nextElementSibling instanceof HTMLElement
+        ? btn.nextElementSibling
+        : null);
+
+    btn.addEventListener("click", async () => {
+      // No-port branch: fast path, no POST, no cooldown.
+      if (currentPort === null) {
+        if (statusEl !== null) {
+          statusEl.textContent = DISCOVERY_STATUS.noPort;
+        }
+        return;
+      }
+      // In-flight: lock the button immediately and show "Requesting…"
+      // so a slow daemon doesn't leave the UI looking inert between
+      // click and POST resolution.
+      btn.disabled = true;
+      if (statusEl !== null) {
+        statusEl.textContent = DISCOVERY_STATUS.inFlight;
+      }
+
+      const result = await postDiscoveryRequestWithStaleRecovery(currentPort);
+      currentPort = result.port;
+      setPortFooter(currentPort);
+      const outcome = computeDiscoveryOutcome(
+        result.port,
+        result.ok,
+        new Date(),
+      );
+      if (statusEl !== null) {
+        statusEl.textContent = outcome.status;
+      }
+      // Only hold the cooldown for outcomes where a POST actually
+      // happened. The `noPort` early-return is unreachable here
+      // because we just checked currentPort, but keep the guard so
+      // the contract matches `computeDiscoveryOutcome` exactly.
+      if (outcome.shouldHoldDisabled) {
+        setTimeout(() => {
+          btn.disabled = false;
+        }, REQUEST_COOLDOWN_MS);
+      } else {
+        btn.disabled = false;
+      }
+    });
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   wireRetry();
   void wireReuseTabToggle();
+  wireRequestDiscovery();
   void runFlow();
 });

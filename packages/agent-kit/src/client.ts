@@ -4,6 +4,13 @@ import {
   type CandidateInput,
 } from "./candidate.js";
 import {
+  SignalSchema,
+  SignalsListResponseSchema,
+  type Signal,
+  type SignalInput,
+  type SignalsQuery,
+} from "./signal.js";
+import {
   DaemonHttpError,
   DaemonNetworkError,
   DaemonTimeoutError,
@@ -46,6 +53,16 @@ export interface DaemonClient {
   getCandidates(): Promise<Candidate[]>;
   postAction(id: string, action: DaemonAction): Promise<void>;
   getConfig(): Promise<{ kb_dir: string; port: number }>;
+  /**
+   * Pull-signal surface. The extension's "Request discovery" button
+   * fires `postSignal({ kind: "discovery_requested" })`; the agent's
+   * discover skill runs `listSignals({ kind: "discovery_requested",
+   * status: "pending" })` on start-up and `ackSignal(id)` after handling
+   * the run.
+   */
+  postSignal(input: SignalInput): Promise<Signal>;
+  listSignals(query?: SignalsQuery): Promise<Signal[]>;
+  ackSignal(id: string): Promise<Signal>;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -158,6 +175,36 @@ export function createDaemonClient(
         port: parsed.port ?? 0,
         kb_dir: parsed.kb_dir ?? "",
       };
+    },
+
+    async postSignal(input) {
+      const res = await request("/signals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      await expectOk(res);
+      return SignalSchema.parse(await res.json());
+    },
+
+    async listSignals(query = {}) {
+      const qs = new URLSearchParams();
+      if (query.kind) qs.set("kind", query.kind);
+      if (query.status) qs.set("status", query.status);
+      if (query.limit !== undefined) qs.set("limit", String(query.limit));
+      if (query.cursor) qs.set("cursor", query.cursor);
+      const suffix = qs.toString();
+      const res = await request(`/signals${suffix ? `?${suffix}` : ""}`);
+      await expectOk(res);
+      return SignalsListResponseSchema.parse(await res.json()).signals;
+    },
+
+    async ackSignal(id) {
+      const res = await request(`/signals/${encodeURIComponent(id)}/ack`, {
+        method: "POST",
+      });
+      await expectOk(res);
+      return SignalSchema.parse(await res.json());
     },
   };
 }

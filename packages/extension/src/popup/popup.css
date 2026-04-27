@@ -187,6 +187,48 @@ html, body {
 
 .settings__label { flex: 1; }
 
+/* ----- request-discovery button (list + empty states) --------------- */
+
+.request-discovery {
+  margin-top: 8px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+}
+.request-discovery:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.request-discovery:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.request-discovery--primary {
+  margin-top: 10px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+.request-discovery--primary:hover:not(:disabled) {
+  filter: brightness(0.95);
+  color: var(--accent-fg);
+}
+
+.request-status {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  min-height: 1.2em;
+}
+.request-status:empty { display: none; }
+
 /* ----- error state --------------------------------------------------- */
 
 .state--error {

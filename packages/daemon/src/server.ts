@@ -4,13 +4,18 @@ import { dirname, resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { z, ZodError } from "zod";
+import { randomUUID } from "node:crypto";
 import {
   ActionBodySchema,
   CandidateSchema,
   PostCandidatesBodySchema,
+  SignalInputSchema,
+  SignalSchema,
+  SignalsQuerySchema,
   SuggestionQuerySchema,
   type Candidate,
   type CandidateInput,
+  type Signal,
 } from "./schemas.js";
 import {
   candidatesList,
@@ -336,6 +341,111 @@ export async function buildServer(
     kb_dir: state.config.kb_dir,
   }));
 
+  /**
+   * Pull-signal endpoints. The extension POSTs a `discovery_requested`
+   * when the user clicks the popup's "Request discovery" button; the
+   * agent's skill GETs pending signals on session start, acts, then
+   * POSTs /ack. Signal lifecycle is deliberately 2-state (pending →
+   * acked) — simpler than candidate's 5-state flow because there is no
+   * user-facing interaction besides "create" and "consume".
+   */
+  app.post("/signals", async (req, reply) => {
+    const parsed = SignalInputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send(invalidRequest(parsed.error));
+    }
+
+    const now = new Date().toISOString();
+    const signal: Signal = SignalSchema.parse({
+      id: randomUUID(),
+      kind: parsed.data.kind,
+      status: "pending",
+      meta: parsed.data.meta,
+      created_at: now,
+    });
+    state.signals[signal.id] = signal;
+
+    try {
+      saveState(state);
+    } catch (err) {
+      req.log?.error({ err }, "failed to persist state");
+      return reply.code(500).send({ error: "persistence_failure" });
+    }
+
+    events.publish({
+      type: "signal_added",
+      id: signal.id,
+      kind: signal.kind,
+      created_at: signal.created_at,
+    });
+
+    return signal;
+  });
+
+  app.get("/signals", async (req, reply) => {
+    const parsed = SignalsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send(invalidRequest(parsed.error));
+    }
+    const { kind, status, limit, cursor } = parsed.data;
+    const signals = Object.values(state.signals).filter((s) => {
+      if (kind && s.kind !== kind) return false;
+      if (status && s.status !== status) return false;
+      return true;
+    }).sort((a, b) => {
+      const byCreated = a.created_at.localeCompare(b.created_at);
+      return byCreated === 0 ? a.id.localeCompare(b.id) : byCreated;
+    });
+
+    let start = 0;
+    if (cursor) {
+      const cursorIndex = signals.findIndex((s) => s.id === cursor);
+      if (cursorIndex === -1) {
+        return reply.code(400).send({ error: "invalid_cursor" });
+      }
+      start = cursorIndex + 1;
+    }
+
+    const page = signals.slice(start, start + limit);
+    const hasNext = start + limit < signals.length;
+    return {
+      signals: page,
+      ...(hasNext ? { nextCursor: page[page.length - 1]?.id } : {}),
+    };
+  });
+
+  app.post<{ Params: { id: string } }>(
+    "/signals/:id/ack",
+    async (req, reply) => {
+      const id = req.params.id;
+      const signal = state.signals[id];
+      if (!signal) {
+        return reply.code(404).send({ error: "not_found" });
+      }
+      // Idempotent: re-acking an already-acked signal is a no-op that
+      // returns the existing record. Agents re-running discovery
+      // shouldn't 409 on a duplicate ack.
+      if (signal.status === "acked") {
+        return signal;
+      }
+      const updated: Signal = {
+        ...signal,
+        status: "acked",
+        acked_at: new Date().toISOString(),
+      };
+      state.signals[id] = updated;
+
+      try {
+        saveState(state);
+      } catch (err) {
+        req.log?.error({ err }, "failed to persist state");
+        return reply.code(500).send({ error: "persistence_failure" });
+      }
+
+      return updated;
+    },
+  );
+
   return app;
 }
 
@@ -345,7 +455,10 @@ function invalidRequest(err: ZodError): {
 } {
   return {
     error: "invalid_request",
-    details: err.issues.map((i) => ({ path: i.path, message: i.message })),
+    details: err.issues.map((i) => ({
+      path: i.path.map((p) => (typeof p === "symbol" ? p.toString() : p)),
+      message: i.message,
+    })),
   };
 }
 

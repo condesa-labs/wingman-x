@@ -103,6 +103,7 @@ export function writeStateDirect(state: StateFile): void {
 export function emptyState(): StateFile {
   return {
     candidates: {},
+    signals: {},
     config: { kb_dir: join(homedir(), DEFAULT_STATE_SUBDIR, "kb") },
   };
 }

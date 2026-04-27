@@ -46,6 +46,11 @@ order (or, if it knows the port from an earlier run, reads it from
 2. **Discover the daemon port.** Probe `GET http://localhost:<port>/health`
    for `port ∈ 53827..53836`. The first port returning `{status: "ok"}` is
    live. Pass that port to `createDaemonClient(port)`.
+   Also fetch any pending pull-signals:
+   `client.listSignals({ kind: "discovery_requested", status: "pending" })`.
+   Remember the returned IDs; you'll ack them after a successful POST
+   in step 7. See [Pull-signal protocol](#pull-signal-protocol) below
+   for the full rules.
 3. **Open the feed.** Use the browser MCP to `navigate_page` to
    `https://x.com/home` and wait for the timeline to render.
 4. **Collect tweet candidates.** Run a bounded scroll window (e.g. 20 scroll
@@ -59,12 +64,69 @@ order (or, if it knows the port from an earlier run, reads it from
 6. **POST to the daemon.** Call
    `createDaemonClient(port).postCandidates([ ... ])` with the batch. The
    daemon returns `{ accepted: N }`. Surface the count to the user.
-7. **Stop.** The MVP is explicit-invocation only — the agent does not idle
+7. **Ack pulled signals.** For each signal id captured in step 2, call
+   `client.ackSignal(id)`. This transitions the signal from `pending`
+   to `acked` and leaves a timestamped audit trail in `state.json`.
+   Ack every run, including zero-candidate runs and degraded scraper
+   runs, so the queue does not hot-loop on the same request forever. The
+   user can click **Request discovery** again to retry.
+8. **Stop.** The MVP is explicit-invocation only — the agent does not idle
    or poll. The user reviews the candidates in the extension popup / Dock
    and explicitly accepts / dismisses each one.
 
 Minimum viable run: ≥ 3, ≤ 10 candidates per invocation. Push more only if
 the user explicitly asks.
+
+---
+
+## Pull-signal protocol
+
+The extension's popup has a **Request discovery** button. Clicking it
+POSTs a pull-signal to the daemon:
+
+```http
+POST /signals { "kind": "discovery_requested" }
+→ Signal { id, kind, status: "pending", created_at }
+```
+
+Signals are **priority hints**, not gates — an agent should run discovery
+on every invocation regardless, and use signal presence to decide whether
+to scan wider (more Tier-2 handles, deeper scroll) when the user has
+explicitly asked.
+
+### Agent obligations
+
+- **On start:** `client.listSignals({ kind: "discovery_requested",
+  status: "pending" })`. Remember the IDs.
+- **After the discovery run finishes:** ack each ID via `client.ackSignal(id)`.
+  Ack is idempotent — re-acking is a no-op and returns the existing record.
+- **On zero-candidate runs:** ack anyway. Leaving a degraded run
+  `pending` can hot-loop the discovery queue. The user re-clicks
+  **Request discovery** to retry.
+- **Do not poll.** Signals are checked exactly once per invocation, in
+  step 2.
+
+### Signal lifecycle
+
+```text
+POST /signals → status="pending", created_at set
+POST /signals/:id/ack → status="acked", acked_at set, permanently retained
+```
+
+Acked signals stay in `state.json` as an audit log of when a request
+was made vs. when the agent serviced it. If this grows unboundedly
+across long-lived installs, a future cleanup task can prune records
+where `status="acked" AND acked_at < now - 30d`; not in scope for the
+MVP.
+
+### Alternative agent hosts
+
+Any host consuming `@twitter-helper/agent-kit` gets `listSignals` /
+`ackSignal` / `postSignal` from the returned `DaemonClient`. Hosts
+without the client can call the endpoints directly with any HTTP
+library — the schemas are documented in
+`packages/daemon/src/schemas.ts` (`SignalSchema`, `SignalInputSchema`,
+`SignalsQuerySchema`).
 
 ---
 
@@ -132,7 +194,7 @@ existing `created_at` on a re-POST.
 
 The knowledge base lives at `~/.twitter-helper/kb/`:
 
-```
+```text
 ~/.twitter-helper/kb/
 ├── tone.md                   # free-form voice guide
 └── library/

@@ -11,6 +11,8 @@
  *   never need to know about HTTP.
  */
 
+import type { SignalKind } from "./schemas.js";
+
 export interface CandidateAddedEvent {
   type: "candidate_added";
   tweet_id: string;
@@ -19,10 +21,23 @@ export interface CandidateAddedEvent {
 }
 
 /**
+ * Broadcast when the extension (or any caller) POSTs a new pull-signal
+ * to the daemon via POST /signals. Lets downstream watchers react in
+ * real time — e.g., a long-running agent worker that picks up
+ * discovery_requested without polling.
+ */
+export interface SignalAddedEvent {
+  type: "signal_added";
+  id: string;
+  kind: SignalKind;
+  created_at: string;
+}
+
+/**
  * Extensible union — new event types should be added here and both
  * publish/subscribe sides kept in sync.
  */
-export type DaemonEvent = CandidateAddedEvent;
+export type DaemonEvent = CandidateAddedEvent | SignalAddedEvent;
 
 export type EventSubscriber = (sseFrame: string) => void;
 

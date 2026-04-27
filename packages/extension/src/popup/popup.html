@@ -35,11 +35,37 @@
             />
             <span class="settings__label">Reuse existing Twitter tab</span>
           </label>
+          <button
+            type="button"
+            class="request-discovery"
+            data-testid="twh-request-discovery-list"
+          >
+            Request discovery
+          </button>
+          <div
+            class="request-status"
+            data-testid="twh-request-status-list"
+            aria-live="polite"
+            aria-atomic="true"
+          ></div>
         </div>
       </section>
 
       <section class="state state--empty">
         <p class="empty__message">No candidates yet — run your agent.</p>
+        <button
+          type="button"
+          class="request-discovery request-discovery--primary"
+          data-testid="twh-request-discovery-empty"
+        >
+          Request discovery
+        </button>
+        <div
+          class="request-status"
+          data-testid="twh-request-status-empty"
+          aria-live="polite"
+          aria-atomic="true"
+        ></div>
         <footer class="footer" data-testid="port-status"></footer>
       </section>
 

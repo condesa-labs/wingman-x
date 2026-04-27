@@ -26,6 +26,7 @@
 import { fillReplyComposer } from "./fill-reply.js";
 import { unmountDock } from "./dock.js";
 import { showToast } from "./toast.js";
+import { parseTweetId } from "./parse-tweet-url.js";
 
 export type DockAction =
   | "fill"
@@ -133,6 +134,19 @@ export async function handleAction(
 ): Promise<void> {
   switch (action) {
     case "fill": {
+      // URL-match guard: an SPA navigation can move the page to a new
+      // tweet between Dock mount and this click. Filling the previously
+      // mounted candidate's reply into the new tweet's composer would
+      // silently misattribute text. Re-parse the live URL and abort if
+      // it no longer matches the captured tweetId.
+      const currentTweetId = parseTweetId(window.location.href);
+      if (currentTweetId !== ctx.tweetId) {
+        showToast(
+          "Reply out of sync — reopen this candidate from the popup",
+          3_000,
+        );
+        return;
+      }
       const ok = await fillReplyComposer(ctx.suggestedReply);
       if (ok && ctx.port !== null) {
         await postAction(ctx.port, ctx.tweetId, "filled");

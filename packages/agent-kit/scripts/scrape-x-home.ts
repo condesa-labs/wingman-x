@@ -16,6 +16,7 @@
  * Exits non-zero on login gate or DOM-churn degradation, matching the
  * failure-mode contract in docs/agent-workflow.md.
  */
+import "../../../scripts/load-env.mjs";
 import { chromium, type BrowserContext, type Page } from "playwright";
 
 const CDP_URL = process.env.CDP_URL ?? "http://localhost:9222";
