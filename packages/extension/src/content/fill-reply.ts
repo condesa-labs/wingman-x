@@ -16,21 +16,34 @@
  *   3. Dispatch a synthetic `paste` event carrying the text via a
  *      `DataTransfer`. Lexical / DraftJS treat paste as a single React-
  *      state update — exactly the path we want. We detect that the
- *      editor handled the event by inspecting `dispatchEvent`'s return
- *      value: any handler that calls `preventDefault()` (the editor
- *      always does, to stop the browser's native paste from also
- *      running) flips it to `false`. That signal is the difference
- *      between "Lexical accepted it, don't do anything else" and "no
- *      paste handler intercepted, fall through".
- *   4. Fallback when paste isn't handled (e.g. the E2E fixture's plain
- *      contenteditable, or older hosts without ClipboardEvent /
- *      DataTransfer): `document.execCommand('insertText', false, text)`
- *      replaces the selection and fires a real `input` event so the
- *      fixture's Tweet-button listener still flips on.
+ *      editor actually handled the event by checking BOTH (a) some
+ *      listener called `preventDefault()` (`dispatchEvent` returns
+ *      false) AND (b) one animation frame later the composer's text
+ *      now contains our target string and differs from the snapshot
+ *      taken before dispatch. The compound check rules out non-editor
+ *      paste interceptors — a Chrome extension, analytics script, or
+ *      defensive paste guard could `preventDefault()` without inserting
+ *      text; if we trusted `preventDefault()` alone we would skip the
+ *      execCommand fallback, return success, and downstream
+ *      (`actions.ts`) would mark the candidate as `filled` even though
+ *      the composer is empty.
+ *   4. Fallback when paste isn't handled by the editor (the E2E
+ *      fixture's plain contenteditable, or older hosts without
+ *      ClipboardEvent / DataTransfer, or a non-editor interceptor that
+ *      cancelled paste without inserting): `document.execCommand
+ *      ('insertText', false, text)` replaces the selection and fires a
+ *      real `input` event so the fixture's Tweet-button listener still
+ *      flips on.
  *   5. Last resort if execCommand is unavailable or returns false:
  *      assign `textContent` directly and dispatch synthetic `beforeinput`
  *      / `input` events.
  *   6. Move the caret to the end so further typing appends naturally.
+ *   7. Return `true` only if the composer's final text contains the
+ *      target string. This is the contract `actions.ts` relies on to
+ *      decide whether to POST `action: filled` — a silent fail (e.g.
+ *      both paths cancelled with no insert) MUST surface as `false` so
+ *      we don't mark a candidate as handled when the user has nothing
+ *      typed.
  *
  * Why not execCommand as the primary path?
  *   On Lexical / modern DraftJS, `execCommand('insertText')` produces
@@ -95,14 +108,16 @@ export async function fillReplyComposer(
     selection.addRange(allRange);
   }
 
-  // Primary path: synthetic `paste` event. Lexical / DraftJS will read
-  // the DataTransfer's text/plain and apply it as a single state update,
-  // calling preventDefault() to stop the browser's native handling.
-  // `dispatchEvent` returns false when any listener prevented default —
-  // that's the signal that the editor consumed the event and we MUST
-  // NOT also invoke execCommand (doing so produces the double-insertion
-  // the docblock above describes).
-  let handledByEditor = false;
+  // Snapshot the composer's text BEFORE dispatching paste. Used below
+  // to detect whether the paste actually wrote anything — required
+  // because preventDefault() alone is not proof of insertion.
+  const beforeText = el.textContent ?? "";
+
+  // Primary path: synthetic `paste` event. Lexical / DraftJS read the
+  // DataTransfer's text/plain and apply it as a single React-state
+  // update, calling preventDefault() to stop the browser's native
+  // handling.
+  let pasteCancelled = false;
   try {
     const dt = new DataTransfer();
     dt.setData("text/plain", text);
@@ -111,11 +126,30 @@ export async function fillReplyComposer(
       bubbles: true,
       cancelable: true,
     });
-    handledByEditor = !el.dispatchEvent(pasteEvent);
+    pasteCancelled = !el.dispatchEvent(pasteEvent);
   } catch {
     // ClipboardEvent / DataTransfer unavailable — fall through.
-    handledByEditor = false;
+    pasteCancelled = false;
   }
+
+  // Lexical's onPaste enqueues a React-state update; the DOM commit
+  // lands within the same microtask / next animation frame. Wait one
+  // rAF before reading textContent so the reconciliation has flushed.
+  if (pasteCancelled) {
+    await waitOneFrame(root);
+  }
+
+  // "Editor handled it" requires BOTH:
+  //   (a) preventDefault was called (`pasteCancelled`), AND
+  //   (b) the composer's text now contains the target AND differs from
+  //       the pre-paste snapshot — proof the editor actually inserted,
+  //       not just that some listener cancelled the event without
+  //       writing (analytics, password manager, defensive paste guards).
+  const afterPasteText = el.textContent ?? "";
+  const handledByEditor =
+    pasteCancelled &&
+    afterPasteText !== beforeText &&
+    afterPasteText.includes(text);
 
   if (!handledByEditor) {
     // No paste handler intercepted (E2E fixture, or any plain
@@ -167,5 +201,29 @@ export async function fillReplyComposer(
     selection.addRange(endRange);
   }
 
-  return true;
+  // Final verification: surface explicit failure if neither path
+  // landed the text. The caller (`actions.ts`) uses this return value
+  // to decide whether to POST `action: filled`; a silent failure here
+  // would otherwise mark the candidate as handled with an empty
+  // composer.
+  return (el.textContent ?? "").includes(text);
+}
+
+/**
+ * Resolve after one animation frame on the document's owning view.
+ * Used to give a React-managed contenteditable's reconciliation time
+ * to commit DOM changes after a synthetic paste event. Falls back to
+ * an immediate resolve when the host has no `requestAnimationFrame`
+ * (older test environments).
+ */
+function waitOneFrame(root: Document): Promise<void> {
+  const view = root.defaultView ?? globalThis;
+  const raf = (view as { requestAnimationFrame?: typeof requestAnimationFrame })
+    .requestAnimationFrame;
+  if (typeof raf !== "function") {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    raf(() => resolve());
+  });
 }
