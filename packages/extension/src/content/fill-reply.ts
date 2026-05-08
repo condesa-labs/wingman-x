@@ -129,10 +129,10 @@ export async function fillReplyComposer(
 
   // Lexical's onPaste enqueues a React-state update; the DOM commit
   // lands within the same microtask / next animation frame. Wait one
-  // rAF before reading textContent so the reconciliation has flushed.
-  if (pasteCancelled) {
-    await waitOneFrame(root);
-  }
+  // rAF unconditionally so any paste handler — synchronous or async,
+  // cancelling or not — has time to flush before we sample
+  // textContent.
+  await waitOneFrame(root);
 
   // "Editor handled it" requires BOTH:
   //   (a) preventDefault was called (`pasteCancelled`), AND
@@ -229,6 +229,21 @@ function isDesiredFinalText(actual: string, target: string): boolean {
  * `isDesiredFinalText` so DOM-level differences that don't change the
  * visible content (Lexical paragraph separators, trailing newlines,
  * NBSP between words) compare as equivalent.
+ *
+ * Contract — newlines AND tabs ARE collapsed alongside ordinary
+ * spaces. This is intentional: the predicate is a best-effort visible-
+ * text equality check, not a byte-exact compare. Lexical / DraftJS
+ * routinely insert `\n` paragraph separators around pasted text and
+ * ` ` (NBSP) between words; treating those as equivalent to a
+ * single space prevents the "editor accepted the paste but our check
+ * said it didn't, so we re-ran execCommand and double-inserted" loop.
+ *
+ * Side effect: a target string with intentional `\n` (e.g. multi-
+ * paragraph reply) will compare equal to a flattened editor state
+ * with the same words but no line breaks. That's an acceptable
+ * trade-off for the Fill reply use case — paste paths against modern
+ * contenteditables don't reliably preserve newlines anyway, and the
+ * user can edit the composer before sending.
  */
 function normalizeText(s: string): string {
   return s.replace(/\s+/g, " ").trim();
@@ -240,6 +255,15 @@ function normalizeText(s: string): string {
  * to commit DOM changes after a synthetic paste event. Falls back to
  * an immediate resolve when the host has no `requestAnimationFrame`
  * (older test environments).
+ *
+ * Why `raf.call(view, …)` instead of `raf(…)`: `requestAnimationFrame`
+ * is a Window-bound Web API. Detaching it via
+ * `const raf = view.requestAnimationFrame` and then calling `raf(...)`
+ * standalone throws `TypeError: Illegal invocation` in Chrome and
+ * Firefox (the receiver check fails). happy-dom does NOT enforce the
+ * receiver check, so unit tests under jsdom-like environments pass —
+ * the bug only manifests on real twitter.com / x.com. Binding the
+ * call back to `view` keeps the native receiver intact.
  */
 function waitOneFrame(root: Document): Promise<void> {
   const view = root.defaultView ?? globalThis;
@@ -249,6 +273,6 @@ function waitOneFrame(root: Document): Promise<void> {
     return Promise.resolve();
   }
   return new Promise<void>((resolve) => {
-    raf(() => resolve());
+    raf.call(view, () => resolve());
   });
 }

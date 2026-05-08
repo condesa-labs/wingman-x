@@ -275,11 +275,17 @@ describe("Lexical / DraftJS-style host (paste handler calls preventDefault)", ()
     }
   });
 
-  it("returns false when both paths fail to land any text", async () => {
-    // Defense-in-depth contract: if every insertion path is silently
-    // cancelled, fillReplyComposer MUST surface failure to the caller
-    // so actions.ts does not mark the candidate as `filled` with an
-    // empty composer. (review-loop f1.)
+  it("falls back to the textContent last-resort path and returns true when paste and execCommand both decline", async () => {
+    // Defense-in-depth contract under degraded environments: if both
+    // the paste path AND execCommand decline (paste cancelled with no
+    // insert; execCommand returns false), the last-resort path
+    // (`textContent = text` + synthetic InputEvents) takes over and
+    // lands the text. This test documents that contract — the
+    // function returns true because the last-resort path succeeded.
+    // (To force the deeper silent-fail return-false branch we would
+    // also need to block the textContent setter, which is a heavier
+    // fixture than this unit test layer covers.) — CodeRabbit nit
+    // on PR #4: rename so the title matches the asserted behavior.
     const el = mountComposer();
 
     el.addEventListener("paste", (event) => {
@@ -294,15 +300,56 @@ describe("Lexical / DraftJS-style host (paste handler calls preventDefault)", ()
     try {
       const ok = await fillReplyComposer(REPLY_TEXT, document);
 
-      // Final-resort path (`textContent = text` + synthetic input
-      // events) DOES write the text in this test, so the function
-      // returns true. To force a real silent-failure path we'd need
-      // to also block the textContent setter — which is a deeper
-      // fixture than this test covers. Document the actual contract:
-      // textContent now contains the text via the last-resort path.
       expect(ok).toBe(true);
       expect(el.textContent).toBe(REPLY_TEXT);
     } finally {
+      restore();
+    }
+  });
+
+  it("calls requestAnimationFrame with the view as receiver — guards against 'Illegal invocation' on real Chrome/Firefox", async () => {
+    // CodeRabbit critical (PR #4): `const raf = view.requestAnimationFrame`
+    // followed by `raf(cb)` is a detached call — Chrome/Firefox throw
+    // `TypeError: Illegal invocation` because Window-bound Web APIs
+    // require the window as the receiver. happy-dom does NOT enforce
+    // the receiver check, so a naive call passes unit tests but
+    // breaks on real twitter.com / x.com. This test installs a
+    // requestAnimationFrame stub that captures `this` and asserts it
+    // was the view.
+    const el = mountComposer();
+    el.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const data = (event as ClipboardEvent).clipboardData?.getData(
+        "text/plain",
+      );
+      if (typeof data === "string") {
+        el.textContent = data;
+      }
+    });
+
+    let receiverWasView = false;
+    const view = window;
+    const originalRaf = view.requestAnimationFrame;
+    view.requestAnimationFrame = function rafSpy(
+      this: unknown,
+      cb: FrameRequestCallback,
+    ): number {
+      receiverWasView = this === view;
+      return originalRaf.call(view, cb);
+    } as typeof view.requestAnimationFrame;
+
+    const { restore } = installExecCommandStub();
+
+    try {
+      const ok = await fillReplyComposer(REPLY_TEXT, document);
+
+      expect(ok).toBe(true);
+      // A regression that detaches the call (`raf(cb)` instead of
+      // `raf.call(view, cb)`) would leave `this === undefined` here
+      // and would throw on real Chrome/Firefox.
+      expect(receiverWasView).toBe(true);
+    } finally {
+      view.requestAnimationFrame = originalRaf;
       restore();
     }
   });
