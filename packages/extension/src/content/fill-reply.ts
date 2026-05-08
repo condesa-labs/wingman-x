@@ -136,23 +136,18 @@ export async function fillReplyComposer(
 
   // "Editor handled it" requires BOTH:
   //   (a) preventDefault was called (`pasteCancelled`), AND
-  //   (b) the composer's text now equals the target after whitespace
-  //       normalization — proof the composer is in the desired final
-  //       state.
-  // We deliberately compare against the FINAL desired state rather
-  // than "text changed". If `beforeText` already equalled `text`
-  // (e.g. the user filled once, navigated away, came back, clicked
-  // Fill again — Lexical correctly no-ops the paste because the
-  // selected target text is being replaced with itself), insisting on
-  // a textContent delta would push us into the execCommand fallback
-  // and re-introduce the original double-insertion bug. Conversely,
-  // a non-editor paste interceptor that called preventDefault without
-  // writing leaves `afterPasteText` empty (or unchanged garbage), so
-  // strict equality with the target is false and we still fall
-  // through to execCommand. (review-loop f1 + f3.)
+  //   (b) the composer is in the desired final state — see
+  //       `isDesiredFinalText` for the canonical predicate, which
+  //       normalizes whitespace (incl. NBSP) and requires strict
+  //       equality with the target. This is intentionally narrower
+  //       than "contains target": a composer that ended up with
+  //       "TEXTTEXT" includes the target as a substring but is
+  //       clearly not in the desired state (review-loop f4). And it
+  //       deliberately accepts the no-delta case where the user is
+  //       re-filling an already-filled composer (review-loop f3).
   const afterPasteText = el.textContent ?? "";
   const handledByEditor =
-    pasteCancelled && normalizeText(afterPasteText) === normalizeText(text);
+    pasteCancelled && isDesiredFinalText(afterPasteText, text);
 
   if (!handledByEditor) {
     // No paste handler intercepted (E2E fixture, or any plain
@@ -204,20 +199,36 @@ export async function fillReplyComposer(
     selection.addRange(endRange);
   }
 
-  // Final verification: surface explicit failure if neither path
-  // landed the text. The caller (`actions.ts`) uses this return value
-  // to decide whether to POST `action: filled`; a silent failure here
-  // would otherwise mark the candidate as handled with an empty
-  // composer.
-  return (el.textContent ?? "").includes(text);
+  // Final verification: same desired-state predicate as `handledByEditor`.
+  // Reusing `isDesiredFinalText` (instead of `.includes(text)`) prevents
+  // two failure modes: a duplicated composer ("TEXTTEXT" includes the
+  // target but is NOT the desired state) would otherwise return true
+  // and mark the candidate as `filled`; a normalized-equivalent
+  // success (e.g. NBSP between words) would otherwise return false
+  // and leave a successfully-filled candidate unmarked. The caller
+  // (`actions.ts`) uses this return value to decide whether to POST
+  // `action: filled` (review-loop f4).
+  return isDesiredFinalText(el.textContent ?? "", text);
 }
 
 /**
- * Collapse runs of whitespace into single spaces and trim. Used to
- * compare the editor's post-paste DOM textContent against the target
- * — Lexical / DraftJS may insert paragraph separators or trailing
- * newlines around the inserted text, which we want to treat as
- * equivalent for the "handled" check.
+ * Canonical "is the composer in the desired final state?" predicate.
+ * Whitespace is normalized (runs of `\s` — including NBSP per ES2018
+ * — are collapsed to a single space, leading/trailing trimmed) and
+ * the result is compared with strict equality. Both the post-paste
+ * "did the editor accept it" check AND the final return value of
+ * `fillReplyComposer` MUST go through this predicate so the two
+ * agree (review-loop f4).
+ */
+function isDesiredFinalText(actual: string, target: string): boolean {
+  return normalizeText(actual) === normalizeText(target);
+}
+
+/**
+ * Collapse runs of whitespace into single spaces and trim. Used by
+ * `isDesiredFinalText` so DOM-level differences that don't change the
+ * visible content (Lexical paragraph separators, trailing newlines,
+ * NBSP between words) compare as equivalent.
  */
 function normalizeText(s: string): string {
   return s.replace(/\s+/g, " ").trim();

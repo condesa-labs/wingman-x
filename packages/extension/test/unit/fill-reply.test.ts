@@ -212,6 +212,69 @@ describe("Lexical / DraftJS-style host (paste handler calls preventDefault)", ()
     }
   });
 
+  it("returns false when the composer ends up with duplicated content after both paths", async () => {
+    // f4 (review-loop round 3): the function's final return MUST
+    // reject a duplicated end state. A naive `.includes(text)` check
+    // would say "true" because "TEXTTEXT".includes("TEXT") is true,
+    // and the caller (`actions.ts`) would then POST `action: filled`
+    // against a visibly broken composer. Strict-equality-with-
+    // normalization surfaces the failure.
+    //
+    // To force the duplicated state to survive into the final return,
+    // we (a) make the paste handler write the duplicate (turns off
+    // the editor-handled fast path because the predicate rejects the
+    // state) and (b) stub execCommand to claim success without
+    // modifying textContent (turns off the cleanup path). What's left
+    // is the duplicated string, and the final return value is the
+    // signal under test.
+    const el = mountComposer();
+
+    el.addEventListener("paste", (event) => {
+      el.textContent = REPLY_TEXT + REPLY_TEXT;
+      event.preventDefault();
+    });
+
+    const { restore } = installExecCommandStub(() => true);
+    try {
+      const ok = await fillReplyComposer(REPLY_TEXT, document);
+
+      expect(ok).toBe(false);
+      expect(el.textContent).toBe(REPLY_TEXT + REPLY_TEXT);
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns true when the editor's post-fill text differs only by whitespace normalization (NBSP, trailing newlines)", async () => {
+    // f4 (review-loop round 3): a successful Lexical paste may insert
+    // NBSP between words or trail a paragraph-separator newline. The
+    // visible text matches the target after whitespace normalization;
+    // the function MUST report success (raw `.includes(target)` would
+    // wrongly return false on the NBSP-substitution case).
+    const el = mountComposer();
+
+    const TARGET = "hello world";
+    const NORMALIZED_EQUIVALENT = `hello world\n`;
+
+    el.addEventListener("paste", (event) => {
+      el.textContent = NORMALIZED_EQUIVALENT;
+      event.preventDefault();
+    });
+
+    const { spy, restore } = installExecCommandStub();
+    try {
+      const ok = await fillReplyComposer(TARGET, document);
+
+      expect(ok).toBe(true);
+      expect(el.textContent).toBe(NORMALIZED_EQUIVALENT);
+      // Critical: must NOT fall through to execCommand. The editor's
+      // text already equals the target after normalization.
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
   it("returns false when both paths fail to land any text", async () => {
     // Defense-in-depth contract: if every insertion path is silently
     // cancelled, fillReplyComposer MUST surface failure to the caller
