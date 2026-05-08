@@ -2,33 +2,46 @@
  * Inject text into Twitter's reply composer (CP06).
  *
  * The composer on twitter.com / x.com is a contenteditable `<div>`
- * rendered by a React tree. Writing to `.textContent` directly would
- * show the text in the DOM but leave React's internal state stale — so
- * the "Tweet" button stays disabled and pressing it submits nothing.
+ * managed by a React-driven editor (Lexical / DraftJS). It owns its own
+ * text state and reconciles the DOM from that state on every render.
  *
- * The reliable workaround is to dispatch a real InputEvent through the
- * browser so React's `onBeforeInput` / `onInput` handlers see the
- * change and commit it to state. `document.execCommand('insertText')`
- * does exactly this: despite the "deprecated" banner on MDN, it is the
- * documented path used by browser extensions, password managers and
- * Twitter's own in-product clients to drive contenteditable composers
- * without relying on React internals.
- *
- * Strategy:
+ * Strategy (in order):
  *   1. Locate the composer:
  *        a. `[data-testid="tweetTextarea_0"]` — Twitter's stable hook.
  *        b. `article [contenteditable="true"]` — fallback if they ever
  *           rename the testid within a tweet-detail page.
  *        c. Last-ditch: any `[contenteditable="true"]` on the page.
- *   2. Focus it (execCommand requires focus in most browsers).
- *   3. Select the current contents (if any) so we replace, not append.
- *   4. Call `document.execCommand('insertText', false, text)`.
- *   5. Fallback if execCommand is unavailable or returns `false`:
- *      dispatch a synthetic `InputEvent` with `inputType="insertText"`
- *      AND manually update `textContent` so non-React fixtures still
- *      observe the change (the simulated Tweet button in our fixture
- *      only listens on `input`, so InputEvent alone is enough there).
- *   6. Move the caret to the end so the user can keep typing.
+ *   2. Focus it and select the current contents so the insertion
+ *      REPLACES rather than appends.
+ *   3. Dispatch a synthetic `paste` event carrying the text via a
+ *      `DataTransfer`. Lexical / DraftJS treat paste as a single React-
+ *      state update — exactly the path we want. We detect that the
+ *      editor handled the event by inspecting `dispatchEvent`'s return
+ *      value: any handler that calls `preventDefault()` (the editor
+ *      always does, to stop the browser's native paste from also
+ *      running) flips it to `false`. That signal is the difference
+ *      between "Lexical accepted it, don't do anything else" and "no
+ *      paste handler intercepted, fall through".
+ *   4. Fallback when paste isn't handled (e.g. the E2E fixture's plain
+ *      contenteditable, or older hosts without ClipboardEvent /
+ *      DataTransfer): `document.execCommand('insertText', false, text)`
+ *      replaces the selection and fires a real `input` event so the
+ *      fixture's Tweet-button listener still flips on.
+ *   5. Last resort if execCommand is unavailable or returns false:
+ *      assign `textContent` directly and dispatch synthetic `beforeinput`
+ *      / `input` events.
+ *   6. Move the caret to the end so further typing appends naturally.
+ *
+ * Why not execCommand as the primary path?
+ *   On Lexical / modern DraftJS, `execCommand('insertText')` produces
+ *   the text TWICE: once via the browser's native command execution and
+ *   once via the editor's `beforeinput` handler reconciling React state.
+ *   The user observes the suggested reply pasted end-to-end with itself
+ *   ("…IC leverage.this is a structural shift…"). A subsequent undo or
+ *   range-delete then collapses the editor's single state update,
+ *   removing all of the inserted text and leaving the composer blank.
+ *   Routing through paste eliminates the double-insertion: only the
+ *   editor's React-state path runs.
  *
  * Returns `true` on success; `false` if no composer could be located.
  */
@@ -71,7 +84,7 @@ export async function fillReplyComposer(
 
   el.focus();
 
-  // Select all existing contents so execCommand replaces rather than
+  // Select all existing contents so the insertion REPLACES rather than
   // appends. A pristine Twitter composer is empty — but a user may
   // have typed already, and CP06 semantics say "fill", not "append".
   const selection = root.defaultView?.getSelection() ?? window.getSelection();
@@ -82,42 +95,67 @@ export async function fillReplyComposer(
     selection.addRange(allRange);
   }
 
-  let inserted = false;
+  // Primary path: synthetic `paste` event. Lexical / DraftJS will read
+  // the DataTransfer's text/plain and apply it as a single state update,
+  // calling preventDefault() to stop the browser's native handling.
+  // `dispatchEvent` returns false when any listener prevented default —
+  // that's the signal that the editor consumed the event and we MUST
+  // NOT also invoke execCommand (doing so produces the double-insertion
+  // the docblock above describes).
+  let handledByEditor = false;
   try {
-    // execCommand dispatches an `input` InputEvent that React reads,
-    // so the internal state syncs and the Tweet button enables.
-    inserted = root.execCommand("insertText", false, text);
+    const dt = new DataTransfer();
+    dt.setData("text/plain", text);
+    const pasteEvent = new ClipboardEvent("paste", {
+      clipboardData: dt,
+      bubbles: true,
+      cancelable: true,
+    });
+    handledByEditor = !el.dispatchEvent(pasteEvent);
   } catch {
-    // Some environments (strict MV3 worlds, older Firefox) throw rather
-    // than returning `false`. Fall through to the synthetic path.
-    inserted = false;
+    // ClipboardEvent / DataTransfer unavailable — fall through.
+    handledByEditor = false;
   }
 
-  if (!inserted) {
-    // Fallback for environments without execCommand support. We
-    // manually update textContent AND dispatch a synthetic InputEvent
-    // so listeners (including React and our fixture) still observe the
-    // change. Note: in real React this fallback does NOT sync state
-    // because React tracks the native valueTracker on <input>/<textarea>
-    // only — but for contenteditable React relies on InputEvent, so the
-    // synthetic dispatch is usually enough.
-    el.textContent = text;
-    el.dispatchEvent(
-      new InputEvent("beforeinput", {
-        inputType: "insertText",
-        data: text,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-    el.dispatchEvent(
-      new InputEvent("input", {
-        inputType: "insertText",
-        data: text,
-        bubbles: true,
-        cancelable: false,
-      }),
-    );
+  if (!handledByEditor) {
+    // No paste handler intercepted (E2E fixture, or any plain
+    // contenteditable). Use execCommand to replace the selection and
+    // fire a native `input` event the fixture's Tweet-button listener
+    // depends on.
+    let inserted = false;
+    try {
+      inserted = root.execCommand("insertText", false, text);
+    } catch {
+      // Some environments (strict MV3 worlds, older Firefox) throw
+      // rather than returning `false`. Fall through to the synthetic
+      // path below.
+      inserted = false;
+    }
+
+    if (!inserted) {
+      // Last resort: directly set textContent and dispatch synthetic
+      // input events. Plain contenteditable hosts surface the change to
+      // listeners; React-managed editors would already have been served
+      // by the paste path above, so this branch only runs in degraded
+      // environments.
+      el.textContent = text;
+      el.dispatchEvent(
+        new InputEvent("beforeinput", {
+          inputType: "insertText",
+          data: text,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      el.dispatchEvent(
+        new InputEvent("input", {
+          inputType: "insertText",
+          data: text,
+          bubbles: true,
+          cancelable: false,
+        }),
+      );
+    }
   }
 
   // Move the caret to the end so further typing appends naturally.
