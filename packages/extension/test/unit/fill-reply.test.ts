@@ -170,6 +170,48 @@ describe("Lexical / DraftJS-style host (paste handler calls preventDefault)", ()
     }
   });
 
+  it("treats no-op paste of already-correct text as handled — does NOT call execCommand", async () => {
+    // f3 (review-loop round 2): when the composer already contains
+    // the target reply (user filled once, navigated away, came back,
+    // clicked Fill again), Lexical's onPaste correctly replaces the
+    // selected target with the same target — `textContent` is
+    // unchanged but the editor handled the event. The "handled"
+    // predicate must accept this case; otherwise we fall through to
+    // execCommand and append the reply a second time, re-introducing
+    // the original double-insertion bug.
+    const el = mountComposer();
+    el.textContent = REPLY_TEXT;
+
+    let pasteCount = 0;
+    el.addEventListener("paste", (event) => {
+      pasteCount += 1;
+      const data = (event as ClipboardEvent).clipboardData?.getData(
+        "text/plain",
+      );
+      // Editor "handles" by setting the same text back — no DOM delta.
+      if (typeof data === "string") {
+        el.textContent = data;
+      }
+      event.preventDefault();
+    });
+
+    const { spy, restore } = installExecCommandStub();
+    try {
+      const ok = await fillReplyComposer(REPLY_TEXT, document);
+
+      expect(ok).toBe(true);
+      expect(pasteCount).toBe(1);
+      expect(el.textContent).toBe(REPLY_TEXT);
+      // Critical: must NOT fall through to execCommand. If it did, the
+      // appended second copy of REPLY_TEXT would re-create the
+      // original double-insertion bug under the "fill an already-
+      // filled composer" path.
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
   it("returns false when both paths fail to land any text", async () => {
     // Defense-in-depth contract: if every insertion path is silently
     // cancelled, fillReplyComposer MUST surface failure to the caller
