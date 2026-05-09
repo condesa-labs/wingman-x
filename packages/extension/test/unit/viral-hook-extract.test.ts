@@ -1,47 +1,32 @@
 import { describe, expect, it } from "vitest";
 import { extractTweetsFromGraphQLResponse } from "../../src/content/viral-hook-extract.js";
 
+const baseLegacy = {
+  full_text: "Building local-first browser agents.",
+  created_at: "Sat May 09 11:00:00 +0000 2026",
+  favorite_count: 123,
+  retweet_count: 45,
+  reply_count: 6,
+  bookmark_count: 7,
+};
+
 function tweet(overrides: Record<string, unknown> = {}) {
   return {
     __typename: "Tweet",
     rest_id: "1790000000000000001",
-    legacy: {
-      full_text: "Building local-first browser agents.",
-      created_at: "Sat May 09 11:00:00 +0000 2026",
-      favorite_count: 123,
-      retweet_count: 45,
-      reply_count: 6,
-      bookmark_count: 7,
-    },
+    legacy: baseLegacy,
     views: { count: "98765" },
-    core: {
-      user_results: {
-        result: {
-          legacy: { screen_name: "alice_ai" },
-        },
-      },
-    },
+    core: { user_results: { result: { legacy: { screen_name: "alice_ai" } } } },
     ...overrides,
   };
 }
 
+const envelope = (result: unknown) => ({ data: { x: { tweet_results: { result } } } });
+const extract = (result: unknown) => extractTweetsFromGraphQLResponse(envelope(result));
+
 describe("extractTweetsFromGraphQLResponse", () => {
   it("extracts a tweet_results.result payload", () => {
-    const result = extractTweetsFromGraphQLResponse({
-      data: {
-        home: {
-          instructions: [
-            {
-              entries: [
-                { content: { itemContent: { tweet_results: { result: tweet() } } } },
-              ],
-            },
-          ],
-        },
-      },
-    });
-
-    expect(result).toEqual([
+    expect(extract(tweet())).toEqual([
       expect.objectContaining({
         tweet_id: "1790000000000000001",
         tweet_url: "https://x.com/alice_ai/status/1790000000000000001",
@@ -56,66 +41,35 @@ describe("extractTweetsFromGraphQLResponse", () => {
     ]);
   });
 
-  it("skips deleted tweet envelopes", () => {
-    const result = extractTweetsFromGraphQLResponse({
-      tweet_results: { result: { __typename: "TweetTombstone" } },
-    });
-
-    expect(result).toEqual([]);
-  });
-
-  it("skips promoted tweet wrappers", () => {
-    const result = extractTweetsFromGraphQLResponse({
-      tweet_results: {
-        result: tweet({ promotedMetadata: { advertiser_results: {} } }),
-      },
-    });
-
-    expect(result).toEqual([]);
+  it("skips deleted tweets and promoted wrappers", () => {
+    expect(extract({ __typename: "TweetTombstone" })).toEqual([]);
+    expect(extract(tweet({ promotedMetadata: {} }))).toEqual([]);
   });
 
   it("unwraps retweets and extracts the original tweet", () => {
-    const result = extractTweetsFromGraphQLResponse({
-      tweet_results: {
-        result: tweet({
-          legacy: {
-            retweeted_status_result: {
-              result: tweet({
-                rest_id: "1790000000000000002",
-                legacy: {
-                  full_text: "Original high velocity post.",
-                  created_at: "Sat May 09 10:30:00 +0000 2026",
-                  favorite_count: 500,
-                  retweet_count: 250,
-                  reply_count: 100,
-                  bookmark_count: 80,
-                },
-              }),
-            },
+    const result = extract(
+      tweet({
+        legacy: {
+          retweeted_status_result: {
+            result: tweet({
+              rest_id: "1790000000000000002",
+              legacy: { ...baseLegacy, full_text: "Original post." },
+            }),
           },
-        }),
-      },
-    });
+        },
+      }),
+    );
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       tweet_id: "1790000000000000002",
-      tweet_text: "Original high velocity post.",
+      tweet_text: "Original post.",
     });
   });
 
-  it("returns empty array for GraphQL error envelopes", () => {
-    expect(
-      extractTweetsFromGraphQLResponse({
-        errors: [{ message: "rate limited" }],
-      }),
-    ).toEqual([]);
-  });
-
-  it("returns empty array for malformed responses instead of throwing", () => {
+  it("returns empty array for error envelopes and malformed responses", () => {
+    expect(extractTweetsFromGraphQLResponse({ errors: [{ message: "x" }] })).toEqual([]);
     expect(extractTweetsFromGraphQLResponse(null)).toEqual([]);
-    expect(extractTweetsFromGraphQLResponse({ tweet_results: "bad" })).toEqual(
-      [],
-    );
+    expect(extractTweetsFromGraphQLResponse({ tweet_results: "bad" })).toEqual([]);
   });
 });
