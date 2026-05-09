@@ -316,6 +316,8 @@ async function main(): Promise<void> {
     drafted_failed_zod: 0,
     drafted_failed_exit: 0,
     drafted_failed_empty: 0,
+    viral_pool_calls_attempted: 0,
+    viral_pool_calls_succeeded: 0,
   };
 
   const log = (l: string): void => {

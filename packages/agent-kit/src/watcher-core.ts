@@ -14,7 +14,12 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { CandidateInputSchema, type CandidateInput } from "./candidate.js";
+import { z } from "zod";
+import {
+  CandidateInputSchema,
+  type CandidateInput,
+  type CandidateSource,
+} from "./candidate.js";
 import type { SignalKind } from "./signal.js";
 
 /**
@@ -76,6 +81,8 @@ export interface WatcherCounters {
   drafted_failed_zod: number;
   drafted_failed_exit: number;
   drafted_failed_empty: number;
+  viral_pool_calls_attempted: number;
+  viral_pool_calls_succeeded: number;
 }
 
 export interface WatcherConfig {
@@ -138,6 +145,77 @@ export interface ScrapedTweet {
   tweet_url: string;
   author_handle: string;
   tweet_text: string;
+  source?: CandidateSource;
+}
+
+const TweetPoolTopResponseSchema = z.object({
+  tweets: z.array(
+    z.object({
+      tweet_id: z.string().min(1),
+      tweet_url: z.string().url(),
+      author_handle: z.string().min(1),
+      tweet_text: z.string(),
+    }),
+  ),
+});
+
+interface TweetPoolFetchFailure extends Error {
+  status?: number;
+  reason: "http_error" | "invalid_response";
+}
+
+function tweetPoolFetchFailure(
+  reason: TweetPoolFetchFailure["reason"],
+  message: string,
+  status?: number,
+): TweetPoolFetchFailure {
+  const error = new Error(message) as TweetPoolFetchFailure;
+  error.reason = reason;
+  error.status = status;
+  return error;
+}
+
+export async function fetchTweetPoolTop(
+  config: WatcherConfig,
+): Promise<ScrapedTweet[]> {
+  const url = `http://localhost:${config.daemonPort}/tweet_pool/top?limit=10&min_score=30`;
+  const res = await fetch(url, {
+    method: "GET",
+    signal: AbortSignal.timeout(config.fetchTimeoutMs),
+  });
+  if (!res.ok) {
+    throw tweetPoolFetchFailure(
+      "http_error",
+      `tweet_pool top returned HTTP ${res.status}`,
+      res.status,
+    );
+  }
+
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch (err) {
+    throw tweetPoolFetchFailure(
+      "invalid_response",
+      (err as Error).message ?? String(err),
+    );
+  }
+
+  const parsed = TweetPoolTopResponseSchema.safeParse(body);
+  if (!parsed.success) {
+    throw tweetPoolFetchFailure(
+      "invalid_response",
+      parsed.error.issues.map((i) => i.path.join(".")).join(", "),
+    );
+  }
+
+  return parsed.data.tweets.map((tweet) => ({
+    tweet_id: tweet.tweet_id,
+    tweet_url: tweet.tweet_url,
+    author_handle: tweet.author_handle,
+    tweet_text: tweet.tweet_text,
+    source: "viral_pool",
+  }));
 }
 
 /**
@@ -188,7 +266,29 @@ export async function runDiscovery(
     await ackSignalSafe(signal.id, ctx);
     return;
   }
-  for (const tweet of tweets) {
+
+  const handleTweets = tweets.map((tweet) => ({
+    ...tweet,
+    source: tweet.source ?? "handles",
+  }));
+  let viralPoolTweets: ScrapedTweet[] = [];
+  ctx.counters.viral_pool_calls_attempted += 1;
+  try {
+    viralPoolTweets = await fetchTweetPoolTop(ctx.config);
+    ctx.counters.viral_pool_calls_succeeded += 1;
+  } catch (err) {
+    const failure = err as Partial<TweetPoolFetchFailure>;
+    ctx.log(
+      JSON.stringify({
+        event: "tweet_pool_fetch_failed",
+        reason: failure.reason ?? "network_error",
+        ...(typeof failure.status === "number" ? { status: failure.status } : {}),
+        message: (err as Error).message ?? String(err),
+      }),
+    );
+  }
+
+  for (const tweet of [...handleTweets, ...viralPoolTweets]) {
     ctx.counters.drafts_attempted += 1;
     const candidate = await draftReply(tweet, ctx);
     if (candidate !== null) {
@@ -485,6 +585,7 @@ export async function draftReply(
     tweet_url: tweet.tweet_url,
     author_handle: tweet.author_handle,
     tweet_text: tweet.tweet_text,
+    source: tweet.source ?? "handles",
     ...replyFields.data,
   });
   if (!candidate.success) {
@@ -655,6 +756,8 @@ function emitSummary(ctx: RunContext): void {
       drafted_failed_invalid_json: ctx.counters.drafted_failed_invalid_json,
       drafted_failed_zod: ctx.counters.drafted_failed_zod,
       drafted_failed_exit: ctx.counters.drafted_failed_exit,
+      viral_pool_calls_attempted: ctx.counters.viral_pool_calls_attempted,
+      viral_pool_calls_succeeded: ctx.counters.viral_pool_calls_succeeded,
     }),
   );
 }

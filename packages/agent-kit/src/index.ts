@@ -11,10 +11,12 @@ export {
 } from "./errors.js";
 export {
   CandidateInputSchema,
+  CandidateSourceSchema,
   CandidateSchema,
   CandidatesListResponseSchema,
   SuggestionResponseSchema,
   type CandidateInput,
+  type CandidateSource,
   type Candidate,
   type CandidatesListResponse,
   type SuggestionResponse,

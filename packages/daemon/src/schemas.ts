@@ -93,6 +93,9 @@ export const TweetPoolTopQuerySchema = z.object({
   min_score: z.coerce.number().min(0).max(100).default(0),
 });
 
+export const CandidateSourceSchema = z.enum(["handles", "viral_pool"]);
+export type CandidateSource = z.infer<typeof CandidateSourceSchema>;
+
 /**
  * Incoming candidate — what the agent POSTs. Server-managed fields
  * (`status`, `status_updated_at`, `created_at`) are optional on input;
@@ -107,6 +110,7 @@ export const CandidateInputSchema = z.object({
   suggested_reply: z.string().min(1),
   match_reason: z.string(),
   match_category: z.enum(["selected", "topic", "trending"]),
+  source: CandidateSourceSchema.default("handles"),
   kb_refs: z.array(z.string()).default([]),
   created_at: z.string().datetime().optional(),
   status: StatusEnum.optional(),
