@@ -1,4 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -60,6 +67,61 @@ describe("kb seed classification", () => {
     expect(first.investing).toContain("china-market-notes.md");
     expect(first.productivity).toContain("automation-workflows.md");
     expect(first.ai).not.toContain("noise.md");
+  });
+
+  it("covers walker safety branches for symlinks, large files, file cap, and empty output", async () => {
+    const vault = mkdtempSync(join(tmpdir(), "kb-seed-safe-"));
+    const notADir = join(vault, "not-a-dir.txt");
+    const logs: string[] = [];
+    try {
+      writeFileSync(
+        join(vault, "a.md"),
+        "# AI Note\n\nAI agent evaluation prompt retrieval model.",
+      );
+      writeFileSync(
+        join(vault, ".hidden.md"),
+        "# Hidden\n\nAI agent model prompt workflow",
+      );
+      writeFileSync(join(vault, "big.md"), "# Big\n\n" + "x".repeat(128));
+      writeFileSync(notADir, "plain file");
+      mkdirSync(join(vault, "nested"));
+      writeFileSync(
+        join(vault, "nested", "b.md"),
+        "# Productivity Note\n\nworkflow automation checklist task focus efficiency",
+      );
+      symlinkSync(join(vault, "a.md"), join(vault, "linked.md"));
+
+      const notes = await collectMarkdownNotes(vault, {
+        maxFileBytes: 80,
+        log: (line) => logs.push(line),
+      });
+      expect(notes.map((n) => n.relativePath)).toEqual([
+        "a.md",
+        "nested/b.md",
+      ]);
+      expect(logs.some((line) => line.includes('"reason":"file_too_large"'))).toBe(true);
+      expect(logs.some((line) => line.includes('"reason":"symlink"'))).toBe(true);
+
+      const cappedLogs: string[] = [];
+      const capped = await collectMarkdownNotes(vault, {
+        maxFiles: 1,
+        maxFileBytes: 128,
+        log: (line) => cappedLogs.push(line),
+      });
+      expect(capped).toHaveLength(1);
+      expect(
+        cappedLogs.some((line) => line.includes('"event":"kb_seed_file_cap_reached"')),
+      ).toBe(true);
+
+      await expect(collectMarkdownNotes(notADir)).rejects.toThrow(
+        /vault is not a real directory/,
+      );
+
+      const empty = buildLibraryMarkdown([]);
+      expect(empty.ai).toContain("No matching source notes");
+    } finally {
+      rmSync(vault, { recursive: true, force: true });
+    }
   });
 });
 
