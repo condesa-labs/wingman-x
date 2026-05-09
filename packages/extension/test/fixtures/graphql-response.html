@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8" />
+<button id="fetch-graphql" type="button">Fetch GraphQL</button>
+<pre id="messages">messages: 0</pre>
+<script>
+  window.__viralMessages = [];
+  window.addEventListener("message", (event) => {
+    if (event.data?.type !== "TH_VIRAL_OBSERVED") return;
+    window.__viralMessages.push(event.data);
+    document.getElementById("messages").textContent = JSON.stringify(
+      event.data,
+      null,
+      2,
+    );
+  });
+  document.getElementById("fetch-graphql").addEventListener("click", () => {
+    fetch("/i/api/graphql/HomeTimeline").then((res) => res.json());
+  });
+</script>

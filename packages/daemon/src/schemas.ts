@@ -52,6 +52,50 @@ export const TweetUrlSchema = z
       "tweet_url must be an https://twitter.com or https://x.com /<handle>/status/<id> URL",
   });
 
+const IsoDateTimeStringSchema = z.string().refine(
+  (value) => Number.isFinite(Date.parse(value)),
+  { message: "must be a parseable date-time string" },
+);
+
+const CountSchema = z.number().int().min(0);
+
+export const ObservedTweetInputSchema = z.object({
+  tweet_id: z.string().min(1),
+  tweet_url: TweetUrlSchema,
+  author_handle: z.string().min(1),
+  tweet_text: z.string(),
+  views: CountSchema,
+  likes: CountSchema,
+  retweets: CountSchema,
+  replies: CountSchema,
+  bookmarks: CountSchema,
+  created_at: IsoDateTimeStringSchema,
+});
+export type ObservedTweetInput = z.infer<typeof ObservedTweetInputSchema>;
+
+export const ObservedTweetSchema = ObservedTweetInputSchema.extend({
+  observed_at: z.iso.datetime(),
+  score: z.number().int().min(0).max(100),
+});
+export type ObservedTweet = z.infer<typeof ObservedTweetSchema>;
+
+export const PostObservedTweetsBodySchema = z.object({
+  tweets: z.array(ObservedTweetInputSchema).min(1),
+});
+
+export const TweetPoolTopQuerySchema = z.object({
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .default(10)
+    .transform((value) => Math.min(value, 100)),
+  min_score: z.coerce.number().min(0).max(100).default(0),
+});
+
+export const CandidateSourceSchema = z.enum(["handles", "viral_pool"]);
+export type CandidateSource = z.infer<typeof CandidateSourceSchema>;
+
 /**
  * Incoming candidate — what the agent POSTs. Server-managed fields
  * (`status`, `status_updated_at`, `created_at`) are optional on input;
@@ -66,6 +110,7 @@ export const CandidateInputSchema = z.object({
   suggested_reply: z.string().min(1),
   match_reason: z.string(),
   match_category: z.enum(["selected", "topic", "trending"]),
+  source: CandidateSourceSchema.default("handles"),
   kb_refs: z.array(z.string()).default([]),
   created_at: z.string().datetime().optional(),
   status: StatusEnum.optional(),
@@ -158,6 +203,7 @@ export const StateFileSchema = z.object({
   port: z.number().int().optional(),
   candidates: z.record(z.string(), CandidateSchema).default({}),
   signals: z.record(z.string(), SignalSchema).default({}),
+  tweet_pool: z.record(z.string(), ObservedTweetSchema).default({}),
   config: z
     .object({
       kb_dir: z.string(),

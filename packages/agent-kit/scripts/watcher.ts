@@ -43,6 +43,7 @@ import {
 } from "../src/watcher-core.js";
 import { parseSseFrame } from "../src/sse-parser.js";
 import { SignalsListResponseSchema } from "../src/signal.js";
+import { parseJsonArrayEnv } from "../src/watcher-env.js";
 
 const KB_DIR = join(homedir(), ".twitter-helper", "kb");
 const PORT_START = 53827;
@@ -261,12 +262,13 @@ async function main(): Promise<void> {
     kbSystemPrompt: kb.systemPrompt,
     // Use the local tsx binary to drive the scraper. Resolve relative to
     // the repo's node_modules so the watcher works regardless of CWD.
-    scrapeCommand: fileURLToPath(
-      new URL("../../../node_modules/.bin/tsx", import.meta.url),
-    ),
-    scrapeArgs: [
-      fileURLToPath(new URL("./scrape-x-handles.ts", import.meta.url)),
-    ],
+    scrapeCommand:
+      process.env.WATCHER_SCRAPE_COMMAND ??
+      fileURLToPath(new URL("../../../node_modules/.bin/tsx", import.meta.url)),
+    scrapeArgs:
+      parseJsonArrayEnv("WATCHER_SCRAPE_ARGS_JSON") ?? [
+        fileURLToPath(new URL("./scrape-x-handles.ts", import.meta.url)),
+      ],
     claudeBin,
     summaryEveryN: SUMMARY_EVERY_N,
     toneBytes: kb.toneBytes,
@@ -316,6 +318,8 @@ async function main(): Promise<void> {
     drafted_failed_zod: 0,
     drafted_failed_exit: 0,
     drafted_failed_empty: 0,
+    viral_pool_calls_attempted: 0,
+    viral_pool_calls_succeeded: 0,
   };
 
   const log = (l: string): void => {

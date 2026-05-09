@@ -23,6 +23,21 @@
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://twitter.com/*",
+        "https://x.com/*",
+        "http://localhost/*"
+      ],
+      "js": ["viral-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://twitter.com/*", "https://x.com/*"],
+      "js": ["viral-hook.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
     }
   ],
   "action": {

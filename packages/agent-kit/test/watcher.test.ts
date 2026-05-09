@@ -32,12 +32,14 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   RECONNECT_BACKOFF_MS,
   dispatchSignal,
+  fetchTweetPoolTop,
   runDiscovery,
   draftReply,
   runDryRun,
   type WatcherConfig,
   type WatcherCounters,
 } from "../src/watcher-core.js";
+import { parseJsonArrayEnv } from "../src/watcher-env.js";
 
 interface FakeChildSpec {
   /** Lines to write to stdout, joined and pushed in one chunk. */
@@ -164,6 +166,8 @@ function emptyCounters(): WatcherCounters {
     drafted_failed_zod: 0,
     drafted_failed_exit: 0,
     drafted_failed_empty: 0,
+    viral_pool_calls_attempted: 0,
+    viral_pool_calls_succeeded: 0,
   };
 }
 
@@ -260,6 +264,85 @@ describe("dispatchSignal", () => {
   });
 });
 
+describe("fetchTweetPoolTop", () => {
+  it("converts observed tweets into ScrapedTweet values tagged viral_pool", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("http://localhost:53827/tweet_pool/top?limit=10&min_score=30");
+      expect(init?.signal).toBeDefined();
+      return new Response(
+        JSON.stringify({
+          tweets: [
+            {
+              tweet_id: "viral-1",
+              tweet_url: "https://x.com/builder/status/1790000000000000100",
+              author_handle: "@builder",
+              tweet_text: "This thread is moving quickly.",
+              views: 50_000,
+              likes: 2_000,
+              retweets: 500,
+              replies: 120,
+              bookmarks: 80,
+              created_at: "2026-04-23T00:00:00.000Z",
+              observed_at: "2026-04-23T00:01:00.000Z",
+              score: 91,
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+
+    await expect(fetchTweetPoolTop(baseConfig)).resolves.toEqual([
+      {
+        tweet_id: "viral-1",
+        tweet_url: "https://x.com/builder/status/1790000000000000100",
+        author_handle: "@builder",
+        tweet_text: "This thread is moving quickly.",
+        source: "viral_pool",
+      },
+    ]);
+  });
+});
+
+describe("parseJsonArrayEnv", () => {
+  it("returns a parsed string array without warning", () => {
+    const warnings: string[] = [];
+    expect(
+      parseJsonArrayEnv(
+        "WATCHER_SCRAPE_ARGS_JSON",
+        { WATCHER_SCRAPE_ARGS_JSON: JSON.stringify(["scrape.mjs"]) },
+        (message) => warnings.push(message),
+      ),
+    ).toEqual(["scrape.mjs"]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("falls back and warns for malformed JSON and non-string arrays", () => {
+    const malformedWarnings: string[] = [];
+    expect(
+      parseJsonArrayEnv(
+        "WATCHER_SCRAPE_ARGS_JSON",
+        { WATCHER_SCRAPE_ARGS_JSON: "{nope" },
+        (message) => malformedWarnings.push(message),
+      ),
+    ).toBeNull();
+    expect(malformedWarnings.join("")).toContain("must be a JSON string array");
+
+    const shapeWarnings: string[] = [];
+    expect(
+      parseJsonArrayEnv(
+        "WATCHER_SCRAPE_ARGS_JSON",
+        { WATCHER_SCRAPE_ARGS_JSON: JSON.stringify(["ok", 7]) },
+        (message) => shapeWarnings.push(message),
+      ),
+    ).toBeNull();
+    expect(shapeWarnings.join("")).toContain("must be a JSON string array");
+  });
+});
+
 describe("runDiscovery — happy path", () => {
   it("scrapes, drafts, POSTs valid candidate, then ackSignals", async () => {
     const tweets = [
@@ -349,6 +432,159 @@ describe("runDiscovery — happy path", () => {
     expect(ackCall).toBeDefined();
     // ack POST has no body (idempotent endpoint).
     expect(ackCall?.[1]?.body).toBeFalsy();
+  });
+
+  it("merges handle scraper tweets with viral pool tweets and posts source-tagged candidates", async () => {
+    const handleTweets = [
+      {
+        tweet_id: "handle-1",
+        tweet_url: "https://x.com/alice_ai/status/1790000000000000200",
+        author_handle: "@alice_ai",
+        tweet_text: "Handle source.",
+      },
+    ];
+    (spawn as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(() =>
+        makeFakeChild({ stdout: JSON.stringify(handleTweets), exitCode: 0 }),
+      )
+      .mockImplementationOnce(() =>
+        makeFakeChild({ stdout: validReplyFieldsJson, exitCode: 0 }),
+      )
+      .mockImplementationOnce(() =>
+        makeFakeChild({ stdout: validReplyFieldsJson, exitCode: 0 }),
+      );
+
+    const postedCandidates: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (typeof url === "string" && url.includes("/tweet_pool/top")) {
+        return new Response(
+          JSON.stringify({
+            tweets: [
+              {
+                tweet_id: "viral-2",
+                tweet_url: "https://x.com/bob/status/1790000000000000300",
+                author_handle: "@bob",
+                tweet_text: "Viral source.",
+                views: 100_000,
+                likes: 3_000,
+                retweets: 700,
+                replies: 140,
+                bookmarks: 90,
+                created_at: "2026-04-23T00:00:00.000Z",
+                observed_at: "2026-04-23T00:01:00.000Z",
+                score: 88,
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (typeof url === "string" && url.endsWith("/candidates")) {
+        const body = JSON.parse(String(init?.body));
+        postedCandidates.push(body.candidates[0]);
+        return new Response(JSON.stringify({ stored: 1 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (typeof url === "string" && url.includes("/signals/") && url.endsWith("/ack")) {
+        return new Response(JSON.stringify({ status: "acked" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+
+    const counters = emptyCounters();
+    await runDiscovery(
+      { id: "sig-viral", kind: "discovery_requested", created_at: "x" },
+      { config: baseConfig, counters, log: () => {} },
+    );
+
+    expect(postedCandidates.map((c) => [c.tweet_id, c.source])).toEqual([
+      ["handle-1", "handles"],
+      ["viral-2", "viral_pool"],
+    ]);
+    expect(counters.viral_pool_calls_attempted).toBe(1);
+    expect(counters.viral_pool_calls_succeeded).toBe(1);
+  });
+
+  it("keeps posting handle candidates and logs tweet_pool_fetch_failed when viral pool fetch fails", async () => {
+    const handleTweets = [
+      {
+        tweet_id: "handle-2",
+        tweet_url: "https://x.com/alice_ai/status/1790000000000000400",
+        author_handle: "@alice_ai",
+        tweet_text: "Handle source survives pool failure.",
+      },
+    ];
+    (spawn as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(() =>
+        makeFakeChild({ stdout: JSON.stringify(handleTweets), exitCode: 0 }),
+      )
+      .mockImplementationOnce(() =>
+        makeFakeChild({ stdout: validReplyFieldsJson, exitCode: 0 }),
+      );
+
+    const postedCandidates: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (typeof url === "string" && url.includes("/tweet_pool/top")) {
+        return new Response("nope", { status: 500 });
+      }
+      if (typeof url === "string" && url.endsWith("/candidates")) {
+        const body = JSON.parse(String(init?.body));
+        postedCandidates.push(body.candidates[0]);
+        return new Response(JSON.stringify({ stored: 1 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (typeof url === "string" && url.includes("/signals/") && url.endsWith("/ack")) {
+        return new Response(JSON.stringify({ status: "acked" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+    await runDiscovery(
+      { id: "sig-viral-fail", kind: "discovery_requested", created_at: "x" },
+      {
+        config: { ...baseConfig, summaryEveryN: 1 },
+        counters,
+        log: (m) => logs.push(m),
+      },
+    );
+
+    expect(postedCandidates).toHaveLength(1);
+    expect(postedCandidates[0]).toMatchObject({
+      tweet_id: "handle-2",
+      source: "handles",
+    });
+    expect(counters.viral_pool_calls_attempted).toBe(1);
+    expect(counters.viral_pool_calls_succeeded).toBe(0);
+    expect(
+      logs.some(
+        (l) =>
+          l.includes('"event":"tweet_pool_fetch_failed"') &&
+          l.includes('"status":500'),
+      ),
+    ).toBe(true);
+    const summary = logs.map((l) => JSON.parse(l)).find((l) => l.drafts_attempted === 1);
+    expect(summary).toMatchObject({
+      viral_pool_calls_attempted: 1,
+      viral_pool_calls_succeeded: 0,
+    });
   });
 });
 
@@ -1554,6 +1790,8 @@ describe("periodic stdout summary every N=5 drafts", () => {
       drafted_failed_invalid_json: 0,
       drafted_failed_zod: 0,
       drafted_failed_exit: 0,
+      viral_pool_calls_attempted: 1,
+      viral_pool_calls_succeeded: 0,
     });
   });
 

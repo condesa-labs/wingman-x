@@ -25,6 +25,9 @@ export type Status = z.infer<typeof StatusSchema>;
 export const MatchCategorySchema = z.enum(["selected", "topic", "trending"]);
 export type MatchCategory = z.infer<typeof MatchCategorySchema>;
 
+export const CandidateSourceSchema = z.enum(["handles", "viral_pool"]);
+export type CandidateSource = z.infer<typeof CandidateSourceSchema>;
+
 /**
  * Must match `packages/daemon/src/schemas.ts#TWEET_URL_RE` verbatim.
  * Kept duplicated here (rather than imported) so agent-kit stays a
@@ -66,12 +69,13 @@ export const CandidateInputSchema = z.object({
   suggested_reply: z.string().min(1),
   match_reason: z.string(),
   match_category: MatchCategorySchema,
+  source: CandidateSourceSchema.default("handles"),
   kb_refs: z.array(z.string()).optional(),
   created_at: z.string().datetime().optional(),
   status: StatusSchema.optional(),
   status_updated_at: z.string().datetime().optional(),
 });
-export type CandidateInput = z.infer<typeof CandidateInputSchema>;
+export type CandidateInput = z.input<typeof CandidateInputSchema>;
 
 /**
  * `Candidate` — the fully-formed record the daemon returns. All
