@@ -43,6 +43,7 @@ import {
 } from "../src/watcher-core.js";
 import { parseSseFrame } from "../src/sse-parser.js";
 import { SignalsListResponseSchema } from "../src/signal.js";
+import { parseJsonArrayEnv } from "../src/watcher-env.js";
 
 const KB_DIR = join(homedir(), ".twitter-helper", "kb");
 const PORT_START = 53827;
@@ -146,23 +147,6 @@ function parsePositiveNumberEnv(name: string, fallback: number): number {
     `watcher warning: ${name}=${JSON.stringify(raw)} is invalid; using ${fallback}\n`,
   );
   return fallback;
-}
-
-function parseJsonArrayEnv(name: string): string[] | null {
-  const raw = process.env[name];
-  if (raw === undefined) return null;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed) && parsed.every((value) => typeof value === "string")) {
-      return parsed;
-    }
-  } catch {
-    // fall through to warning below
-  }
-  process.stderr.write(
-    `watcher warning: ${name} must be a JSON string array; using default scraper args\n`,
-  );
-  return null;
 }
 
 async function drainPendingDiscoverySignals(

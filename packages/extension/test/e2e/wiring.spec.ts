@@ -24,8 +24,14 @@ test("wiring popup shows candidates seeded from handles and viral_pool sources",
     expect(res.ok).toBe(true);
     ext = await launchWithExtension();
     const page = await ext.context.newPage();
+    const consoleErrors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") consoleErrors.push(msg.text());
+    });
+    page.on("pageerror", (err) => consoleErrors.push(err.message));
     await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);
     await expect(page.locator('[data-testid="twh-popup-card"]')).toHaveCount(2);
+    expect(consoleErrors).toEqual([]);
     await page.screenshot({
       path: resolve(evidenceDir, "2026-05-09-viral-pool.png"),
       fullPage: true,

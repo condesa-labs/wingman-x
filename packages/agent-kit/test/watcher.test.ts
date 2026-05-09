@@ -39,6 +39,7 @@ import {
   type WatcherConfig,
   type WatcherCounters,
 } from "../src/watcher-core.js";
+import { parseJsonArrayEnv } from "../src/watcher-env.js";
 
 interface FakeChildSpec {
   /** Lines to write to stdout, joined and pushed in one chunk. */
@@ -303,6 +304,42 @@ describe("fetchTweetPoolTop", () => {
         source: "viral_pool",
       },
     ]);
+  });
+});
+
+describe("parseJsonArrayEnv", () => {
+  it("returns a parsed string array without warning", () => {
+    const warnings: string[] = [];
+    expect(
+      parseJsonArrayEnv(
+        "WATCHER_SCRAPE_ARGS_JSON",
+        { WATCHER_SCRAPE_ARGS_JSON: JSON.stringify(["scrape.mjs"]) },
+        (message) => warnings.push(message),
+      ),
+    ).toEqual(["scrape.mjs"]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("falls back and warns for malformed JSON and non-string arrays", () => {
+    const malformedWarnings: string[] = [];
+    expect(
+      parseJsonArrayEnv(
+        "WATCHER_SCRAPE_ARGS_JSON",
+        { WATCHER_SCRAPE_ARGS_JSON: "{nope" },
+        (message) => malformedWarnings.push(message),
+      ),
+    ).toBeNull();
+    expect(malformedWarnings.join("")).toContain("must be a JSON string array");
+
+    const shapeWarnings: string[] = [];
+    expect(
+      parseJsonArrayEnv(
+        "WATCHER_SCRAPE_ARGS_JSON",
+        { WATCHER_SCRAPE_ARGS_JSON: JSON.stringify(["ok", 7]) },
+        (message) => shapeWarnings.push(message),
+      ),
+    ).toBeNull();
+    expect(shapeWarnings.join("")).toContain("must be a JSON string array");
   });
 });
 
