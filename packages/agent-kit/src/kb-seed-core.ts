@@ -133,7 +133,6 @@ export async function collectMarkdownNotes(
       if (entry.isFile()) {
         seenFiles += 1;
       }
-      if (shouldSkipPath(relativePath, entry.name)) continue;
       if (entry.isSymbolicLink()) {
         options.log?.(
           JSON.stringify({
@@ -148,6 +147,7 @@ export async function collectMarkdownNotes(
         await visit(fullPath);
         continue;
       }
+      if (shouldSkipFile(relativePath, entry.name)) continue;
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
 
       const fileStat = await stat(fullPath);
@@ -268,7 +268,7 @@ function normalizePath(path: string): string {
   return path.split("\\").join("/");
 }
 
-function shouldSkipPath(relativePath: string, entryName: string): boolean {
+function shouldSkipFile(relativePath: string, entryName: string): boolean {
   if (entryName.startsWith(".")) return true;
   const topLevel = relativePath.split("/")[0] ?? "";
   return /^(00_|01_|02_)/u.test(topLevel);

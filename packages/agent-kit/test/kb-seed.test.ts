@@ -132,6 +132,28 @@ describe("kb seed classification", () => {
         rmSync(hiddenVault, { recursive: true, force: true });
       }
 
+      const skippedDirVault = mkdtempSync(join(tmpdir(), "kb-seed-skipped-dir-"));
+      try {
+        mkdirSync(join(skippedDirVault, "01_skip"));
+        writeFileSync(join(skippedDirVault, "01_skip", "one.md"), "# Skip\n\nAI agent model");
+        writeFileSync(join(skippedDirVault, "01_skip", "two.md"), "# Skip\n\nAI agent model");
+        writeFileSync(join(skippedDirVault, "01_skip", "three.md"), "# Skip\n\nAI agent model");
+        const skippedDirLogs: string[] = [];
+        expect(
+          await collectMarkdownNotes(skippedDirVault, {
+            maxFiles: 2,
+            log: (line) => skippedDirLogs.push(line),
+          }),
+        ).toEqual([]);
+        expect(
+          skippedDirLogs.some((line) =>
+            line.includes('"event":"kb_seed_file_cap_reached"'),
+          ),
+        ).toBe(true);
+      } finally {
+        rmSync(skippedDirVault, { recursive: true, force: true });
+      }
+
       await expect(collectMarkdownNotes(notADir)).rejects.toThrow(
         /vault is not a real directory/,
       );
