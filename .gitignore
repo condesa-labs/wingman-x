@@ -18,3 +18,4 @@ playwright-report/
 # Per-session dryrun artifacts produced by packages/agent-kit/scripts/
 # (real tweet ids / handles — do not commit).
 packages/agent-kit/scripts/dryrun-*.json
+.daemon.log
