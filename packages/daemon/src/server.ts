@@ -8,13 +8,17 @@ import { randomUUID } from "node:crypto";
 import {
   ActionBodySchema,
   CandidateSchema,
+  ObservedTweetSchema,
   PostCandidatesBodySchema,
+  PostObservedTweetsBodySchema,
   SignalInputSchema,
   SignalSchema,
   SignalsQuerySchema,
   SuggestionQuerySchema,
+  TweetPoolTopQuerySchema,
   type Candidate,
   type CandidateInput,
+  type ObservedTweet,
   type Signal,
 } from "./schemas.js";
 import {
@@ -24,6 +28,7 @@ import {
 } from "./state.js";
 import { EventBus } from "./events.js";
 import { Readable } from "node:stream";
+import { computeScore } from "./score.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -51,6 +56,8 @@ export interface BuildServerOptions {
    */
   port?: number;
   logger?: boolean;
+  now?: () => Date;
+  onTweetPoolEviction?: () => void;
 }
 
 /**
@@ -120,6 +127,7 @@ export async function buildServer(
   options: BuildServerOptions = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger === true });
+  const now = options.now ?? (() => new Date());
 
   await app.register(cors, {
     origin: (origin, cb) => {
@@ -245,6 +253,48 @@ export async function buildServer(
     }
 
     return { stored };
+  });
+
+  app.post("/tweets/observed", async (req, reply) => {
+    const parsed = PostObservedTweetsBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send(invalidRequest(parsed.error));
+    }
+
+    const observedAt = now().toISOString();
+    for (const input of parsed.data.tweets) {
+      const observed = ObservedTweetSchema.parse({
+        ...input,
+        observed_at: observedAt,
+        score: computeScore(input, new Date(observedAt)),
+      });
+      state.tweet_pool[observed.tweet_id] = observed;
+    }
+    evictTweetPool(state.tweet_pool, new Date(observedAt));
+    options.onTweetPoolEviction?.();
+
+    try {
+      saveState(state);
+    } catch (err) {
+      req.log?.error({ err }, "failed to persist state");
+      return reply.code(500).send({ error: "persistence_failure" });
+    }
+
+    return { stored: parsed.data.tweets.length };
+  });
+
+  app.get("/tweet_pool/top", async (req, reply) => {
+    const parsed = TweetPoolTopQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send(invalidRequest(parsed.error));
+    }
+    const { limit, min_score } = parsed.data;
+    return {
+      tweets: Object.values(state.tweet_pool)
+        .filter((tweet) => tweet.score >= min_score)
+        .sort(compareTweetPoolEntries)
+        .slice(0, limit),
+    };
   });
 
   /**
@@ -499,6 +549,44 @@ function mergeCandidate(
     status_updated_at: existing.status_updated_at,
   };
   return CandidateSchema.parse(merged);
+}
+
+const TWEET_POOL_TTL_MS = 24 * 60 * 60 * 1000;
+const TWEET_POOL_CAPACITY = 1000;
+
+function evictTweetPool(
+  pool: Record<string, ObservedTweet>,
+  now: Date,
+): void {
+  const cutoff = now.getTime() - TWEET_POOL_TTL_MS;
+  for (const [tweetId, tweet] of Object.entries(pool)) {
+    if (Date.parse(tweet.observed_at) < cutoff) {
+      delete pool[tweetId];
+    }
+  }
+
+  const entries = Object.values(pool);
+  if (entries.length <= TWEET_POOL_CAPACITY) return;
+
+  const keep = new Set(
+    entries
+      .sort(compareTweetPoolEntries)
+      .slice(0, TWEET_POOL_CAPACITY)
+      .map((tweet) => tweet.tweet_id),
+  );
+  for (const tweetId of Object.keys(pool)) {
+    if (!keep.has(tweetId)) {
+      delete pool[tweetId];
+    }
+  }
+}
+
+function compareTweetPoolEntries(a: ObservedTweet, b: ObservedTweet): number {
+  const byScore = b.score - a.score;
+  if (byScore !== 0) return byScore;
+  const byObserved = b.observed_at.localeCompare(a.observed_at);
+  if (byObserved !== 0) return byObserved;
+  return a.tweet_id.localeCompare(b.tweet_id);
 }
 
 // Prevent `z` unused-import warning if tree-shaking misses it.

@@ -79,6 +79,20 @@ export const ObservedTweetSchema = ObservedTweetInputSchema.extend({
 });
 export type ObservedTweet = z.infer<typeof ObservedTweetSchema>;
 
+export const PostObservedTweetsBodySchema = z.object({
+  tweets: z.array(ObservedTweetInputSchema).min(1),
+});
+
+export const TweetPoolTopQuerySchema = z.object({
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .default(10)
+    .transform((value) => Math.min(value, 100)),
+  min_score: z.coerce.number().min(0).max(100).default(0),
+});
+
 /**
  * Incoming candidate — what the agent POSTs. Server-managed fields
  * (`status`, `status_updated_at`, `created_at`) are optional on input;

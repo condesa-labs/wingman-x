@@ -28,9 +28,9 @@ describe("tweet pool endpoints", () => {
       url: "/tweets/observed",
       payload: {
         tweets: [
-          sampleObserved({ tweet_id: "low", views: 1_000 }),
-          sampleObserved({ tweet_id: "high", views: 200_000 }),
-          sampleObserved({ tweet_id: "mid", views: 50_000 }),
+          sampleObserved({ tweet_id: "low", views: 1_000, likes: 5, retweets: 1, replies: 1, bookmarks: 1 }),
+          sampleObserved({ tweet_id: "high", views: 200_000, likes: 20_000, retweets: 10_000, replies: 2_000, bookmarks: 6_000 }),
+          sampleObserved({ tweet_id: "mid", views: 50_000, likes: 500, retweets: 50, replies: 20, bookmarks: 25 }),
         ],
       },
     });
@@ -98,22 +98,32 @@ describe("tweet pool endpoints", () => {
   });
 
   it("evicts entries older than 24h and drops lowest-score entries beyond capacity", async () => {
-    app = await buildServer({ now: () => now });
+    app = await buildServer({
+      now: () => new Date("2026-05-07T00:00:00.000Z"),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/tweets/observed",
+      payload: {
+        tweets: [
+          sampleObserved({
+            tweet_id: "expired",
+            views: 1_000_000,
+            created_at: "2026-05-07T00:00:00.000Z",
+          }),
+        ],
+      },
+    });
+    await app.close();
 
-    const tweets = [
-      sampleObserved({
-        tweet_id: "expired",
-        views: 1_000_000,
-        created_at: "2026-05-07T00:00:00.000Z",
-      }),
-      ...Array.from({ length: 1005 }, (_, i) =>
+    app = await buildServer({ now: () => now });
+    const tweets = Array.from({ length: 1005 }, (_, i) =>
         sampleObserved({
           tweet_id: `bulk-${i}`,
           views: i,
           created_at: "2026-05-09T11:00:00.000Z",
         }),
-      ),
-    ];
+      );
 
     const res = await app.inject({
       method: "POST",
