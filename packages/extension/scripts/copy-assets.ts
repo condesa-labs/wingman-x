@@ -121,7 +121,10 @@ function listJsFiles(dir: string): string[] {
  */
 const CONTENT_BUNDLE_ORDER: readonly string[] = [
   "../daemon-shape.js", // shared shape guards used by content-script.ts
+  "../candidates-fetch.js", // dependency of daemon-client
+  "../daemon-client.js", // getPortFromWorker for viral-bridge
   "parse-tweet-url.js",
+  "viral-bridge.js",
   "position-store.js",
   "drag.js",
   "fill-reply.js",
