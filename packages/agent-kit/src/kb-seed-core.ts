@@ -119,14 +119,15 @@ export async function collectMarkdownNotes(
   const maxFiles = options.maxFiles ?? 10_000;
   const maxFileBytes = options.maxFileBytes ?? 1_000_000;
   const found: string[] = [];
+  let seenFiles = 0;
 
   async function visit(dir: string): Promise<void> {
-    if (found.length >= maxFiles) return;
+    if (seenFiles >= maxFiles) return;
     const entries = await readdir(dir, { withFileTypes: true });
     entries.sort((a, b) => a.name.localeCompare(b.name));
 
     for (const entry of entries) {
-      if (found.length >= maxFiles) break;
+      if (seenFiles >= maxFiles) break;
       const fullPath = join(dir, entry.name);
       const relativePath = normalizePath(relative(root, fullPath));
       if (shouldSkipPath(relativePath, entry.name)) continue;
@@ -143,6 +144,9 @@ export async function collectMarkdownNotes(
       if (entry.isDirectory()) {
         await visit(fullPath);
         continue;
+      }
+      if (entry.isFile()) {
+        seenFiles += 1;
       }
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
 
@@ -164,7 +168,7 @@ export async function collectMarkdownNotes(
   }
 
   await visit(root);
-  if (found.length >= maxFiles) {
+  if (seenFiles >= maxFiles) {
     options.log?.(
       JSON.stringify({
         event: "kb_seed_file_cap_reached",

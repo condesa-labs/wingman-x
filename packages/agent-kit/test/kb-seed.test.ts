@@ -104,11 +104,11 @@ describe("kb seed classification", () => {
 
       const cappedLogs: string[] = [];
       const capped = await collectMarkdownNotes(vault, {
-        maxFiles: 1,
+        maxFiles: 2,
         maxFileBytes: 128,
         log: (line) => cappedLogs.push(line),
       });
-      expect(capped).toHaveLength(1);
+      expect(capped.map((n) => n.relativePath)).toEqual(["a.md"]);
       expect(
         cappedLogs.some((line) => line.includes('"event":"kb_seed_file_cap_reached"')),
       ).toBe(true);
