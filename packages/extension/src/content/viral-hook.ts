@@ -34,7 +34,9 @@ function installXhrHook(): void {
   ): void {
     const requestUrl = String(url);
     if (GRAPHQL_URL_RE.test(requestUrl)) {
-      this.addEventListener("load", () => void readXhrResponse(this));
+      this.addEventListener("load", () => void readXhrResponse(this), {
+        once: true,
+      });
     }
     return originalOpen.call(this, method, url, async ?? true, username, password);
   };

@@ -14,7 +14,12 @@ export interface ObservedTweetInput {
 export function extractTweetsFromGraphQLResponse(
   response: unknown,
 ): ObservedTweetInput[] {
-  if (!isRecord(response) || Array.isArray(response.errors)) return [];
+  if (
+    !isRecord(response) ||
+    (Array.isArray(response.errors) && response.errors.length > 0)
+  ) {
+    return [];
+  }
 
   const tweets: ObservedTweetInput[] = [];
   const seen = new Set<string>();

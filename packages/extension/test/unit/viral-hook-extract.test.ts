@@ -41,6 +41,12 @@ describe("extractTweetsFromGraphQLResponse", () => {
     ]);
   });
 
+  it("extracts data when GraphQL returns an empty errors array", () => {
+    expect(
+      extractTweetsFromGraphQLResponse({ errors: [], ...envelope(tweet()) }),
+    ).toHaveLength(1);
+  });
+
   it("skips deleted tweets and promoted wrappers", () => {
     expect(extract({ __typename: "TweetTombstone" })).toEqual([]);
     expect(extract(tweet({ promotedMetadata: {} }))).toEqual([]);

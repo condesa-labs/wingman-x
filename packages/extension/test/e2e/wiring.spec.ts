@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { launchWithExtension, startDaemon, type DaemonHandle, type ExtensionCtx } from "./fixtures.js";
 
-const evidenceDir = resolve("../../docs/manual-qa");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const evidenceDir = resolve(__dirname, "../../../../docs/manual-qa");
 
 test("wiring popup shows candidates seeded from handles and viral_pool sources", async () => {
   mkdirSync(evidenceDir, { recursive: true });
