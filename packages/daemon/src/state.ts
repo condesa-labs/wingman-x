@@ -104,6 +104,7 @@ export function emptyState(): StateFile {
   return {
     candidates: {},
     signals: {},
+    tweet_pool: {},
     config: { kb_dir: join(homedir(), DEFAULT_STATE_SUBDIR, "kb") },
   };
 }
