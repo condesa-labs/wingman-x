@@ -920,6 +920,12 @@ describe("runDiscovery — failure paths", () => {
     const log = logs.find((l) => l.includes('"event":"draft_failed"'));
     expect(log).toBeDefined();
     expect(log).toContain('"reason":"zod_validation"');
+    const parsedLog = JSON.parse(log!);
+    expect(parsedLog.zod_issues[0]).toMatchObject({
+      path: expect.any(String),
+      message: expect.any(String),
+      code: expect.any(String),
+    });
 
     const candidatePost = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(
       ([url, init]) =>
@@ -957,6 +963,50 @@ describe("runDiscovery — failure paths", () => {
     expect(log).toBeDefined();
     expect(log).toContain('"reason":"zod_validation"');
     expect(log).toContain("tweet_url");
+    const parsedLog = JSON.parse(log!);
+    expect(parsedLog.zod_issues[0]).toMatchObject({
+      path: expect.any(String),
+      message: expect.any(String),
+      code: expect.any(String),
+    });
+  });
+
+  it("g) zod_validation: root-level reply field failures keep a non-empty message", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeEnvelope(JSON.stringify("hello")),
+        exitCode: 0,
+      }),
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-root-zod",
+        tweet_url: "https://x.com/u/status/45",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toBeNull();
+    expect(counters.drafted_failed_zod).toBe(1);
+    const log = logs.find((l) => l.includes('"event":"draft_failed"'));
+    expect(log).toBeDefined();
+    const parsedLog = JSON.parse(log!);
+    expect(parsedLog).toMatchObject({
+      reason: "zod_validation",
+      tweet_id: "t-root-zod",
+    });
+    expect(parsedLog.zod_issues[0]).toMatchObject({
+      path: "",
+      message: expect.any(String),
+      code: expect.any(String),
+    });
+    expect(parsedLog.zod_issues[0].message.length).toBeGreaterThan(0);
   });
 });
 

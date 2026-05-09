@@ -462,7 +462,11 @@ export async function draftReply(
         event: "draft_failed",
         reason: "zod_validation",
         tweet_id: tweet.tweet_id,
-        zod_issues: replyFields.error.issues.map((i) => i.path.join(".")),
+        zod_issues: replyFields.error.issues.map((i) => ({
+          path: i.path.join("."),
+          message: i.message,
+          code: i.code,
+        })),
         elapsed_ms: Date.now() - startedAt,
       }),
     );
@@ -484,7 +488,11 @@ export async function draftReply(
         event: "draft_failed",
         reason: "zod_validation",
         tweet_id: tweet.tweet_id,
-        zod_issues: candidate.error.issues.map((i) => i.path.join(".")),
+        zod_issues: candidate.error.issues.map((i) => ({
+          path: i.path.join("."),
+          message: i.message,
+          code: i.code,
+        })),
         elapsed_ms: Date.now() - startedAt,
       }),
     );
