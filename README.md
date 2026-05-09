@@ -219,7 +219,7 @@ Then pick your agent host:
 /discover-twitter-candidates
 ```
 
-Skill source: [`.claude/skills/discover-twitter-candidates.md`](./.claude/skills/discover-twitter-candidates.md).
+Skill source: [`.claude/skills/discover-twitter-candidates/SKILL.md`](./.claude/skills/discover-twitter-candidates/SKILL.md).
 
 **Codex CLI / Gemini CLI / any other MCP host** — follow the agent-agnostic
 walkthrough in [`docs/agent-workflow.md`](./docs/agent-workflow.md). Every
@@ -287,7 +287,7 @@ implementations tested against are:
 
 | Host | Browser MCP | Status | Notes |
 |---|---|---|---|
-| Claude Code | `chrome-devtools` MCP | Reference | Ships with [`.claude/skills/discover-twitter-candidates.md`](./.claude/skills/discover-twitter-candidates.md) in this repo. |
+| Claude Code | `chrome-devtools` MCP | Reference | Ships with [`.claude/skills/discover-twitter-candidates/SKILL.md`](./.claude/skills/discover-twitter-candidates/SKILL.md) in this repo. |
 | OpenAI Codex CLI | `chrome-devtools` MCP | Supported | Follow [`docs/agent-workflow.md`](./docs/agent-workflow.md); no vendor-specific code required. |
 | Gemini CLI | `chrome-devtools` MCP | Supported | Same as Codex. Tool names identical between hosts. |
 | Any other MCP host | `chrome-devtools` or Playwright MCP | Supported | The wire contract is HTTP + the `Candidate` schema. Use `@twitter-helper/agent-kit` directly from your script. |

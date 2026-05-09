@@ -1,4 +1,5 @@
 ---
+name: discover-twitter-candidates
 description: Discover Twitter candidates and draft voice-matched replies using the user's ~/.twitter-helper/kb/ tone + library, then POST them to the local daemon via @twitter-helper/agent-kit.
 ---
 
