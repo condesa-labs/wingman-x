@@ -58,6 +58,8 @@ interface FakeChildSpec {
   ignoreSigterm?: boolean;
   /** Simulate kill() throwing, e.g. because the process is already gone. */
   throwOnKill?: boolean;
+  /** Simulate stdin write throwing, e.g. because the child closed early. */
+  throwOnStdinWrite?: boolean;
 }
 
 function makeFakeChild(spec: FakeChildSpec): unknown {
@@ -76,6 +78,9 @@ function makeFakeChild(spec: FakeChildSpec): unknown {
   let stdinBuf = "";
   const stdin = new Writable({
     write(chunk, _enc, cb) {
+      if (spec.throwOnStdinWrite) {
+        throw new Error("stdin closed");
+      }
       stdinBuf += String(chunk);
       cb();
     },
@@ -753,6 +758,61 @@ describe("runDiscovery — failure paths", () => {
     expect(logs.some((l) => l.includes('"event":"draft_ok"'))).toBe(true);
   });
 
+  it("d3b) legacy flat ReplyFields JSON remains accepted as a defensive fallback", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: validReplyFieldsJson,
+        exitCode: 0,
+      }),
+    );
+
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-flat-json",
+        tweet_url: "https://x.com/u/status/420",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toMatchObject({
+      tweet_id: "t-flat-json",
+      suggested_reply: "Agree — autonomy matters.",
+    });
+    expect(logs.some((l) => l.includes('"event":"draft_ok"'))).toBe(true);
+  });
+
+  it("d3c) stdin write errors do not prevent parsing child stdout", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeEnvelope(validReplyFieldsJson),
+        exitCode: 0,
+        throwOnStdinWrite: true,
+      }),
+    );
+
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-stdin-write-error",
+        tweet_url: "https://x.com/u/status/421",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toMatchObject({
+      tweet_id: "t-stdin-write-error",
+      suggested_reply: "Agree — autonomy matters.",
+    });
+    expect(logs.some((l) => l.includes('"event":"draft_ok"'))).toBe(true);
+  });
+
   it("d4) result_not_json: fenced prose logs result_tail and counts invalid model JSON", async () => {
     (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
       makeFakeChild({
@@ -868,6 +928,35 @@ describe("runDiscovery — failure paths", () => {
         init?.method === "POST",
     );
     expect(candidatePost).toBeUndefined();
+  });
+
+  it("f) zod_validation: invalid candidate fields after valid reply parsing are logged", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeEnvelope(validReplyFieldsJson),
+        exitCode: 0,
+      }),
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-invalid-candidate",
+        tweet_url: "not-a-twitter-status-url",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toBeNull();
+    expect(counters.drafted_failed_zod).toBe(1);
+    const log = logs.find((l) => l.includes('"event":"draft_failed"'));
+    expect(log).toBeDefined();
+    expect(log).toContain('"reason":"zod_validation"');
+    expect(log).toContain("tweet_url");
   });
 });
 

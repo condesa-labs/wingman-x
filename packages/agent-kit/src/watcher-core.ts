@@ -280,6 +280,25 @@ async function runScraper(ctx: RunContext): Promise<ScrapedTweet[] | null> {
   }
 }
 
+function extractClaudeResultText(parsed: unknown): string | null {
+  if (!Array.isArray(parsed)) return null;
+  for (let i = parsed.length - 1; i >= 0; i -= 1) {
+    const event = parsed[i];
+    if (typeof event !== "object" || event === null) continue;
+    const record = event as Record<string, unknown>;
+    if (record.type === "result") {
+      return typeof record.result === "string" ? record.result : "";
+    }
+  }
+  return null;
+}
+
+function stripSingleMarkdownFence(text: string): string {
+  const trimmed = text.trim();
+  const fenceMatch = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
+  return fenceMatch ? fenceMatch[1]! : trimmed;
+}
+
 /**
  * Spawn `claude --print --output-format json` with the KB system prompt
  * appended and the tweet wrapped in a stable delimiter via stdin.
@@ -402,6 +421,39 @@ export async function draftReply(
     return null;
   }
 
+  if (Array.isArray(parsed)) {
+    const resultText = extractClaudeResultText(parsed);
+    if (resultText === null) {
+      if (counters) counters.drafted_failed_invalid_json += 1;
+      log(
+        JSON.stringify({
+          event: "draft_failed",
+          reason: "no_result_event",
+          tweet_id: tweet.tweet_id,
+          elapsed_ms: Date.now() - startedAt,
+        }),
+      );
+      return null;
+    }
+
+    const cleaned = stripSingleMarkdownFence(resultText);
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      if (counters) counters.drafted_failed_invalid_json += 1;
+      log(
+        JSON.stringify({
+          event: "draft_failed",
+          reason: "result_not_json",
+          tweet_id: tweet.tweet_id,
+          result_tail: cleaned.slice(-200),
+          elapsed_ms: Date.now() - startedAt,
+        }),
+      );
+      return null;
+    }
+  }
+
   const replyFields = ReplyFieldsSchema.safeParse(parsed);
   if (!replyFields.success) {
     if (counters) counters.drafted_failed_zod += 1;
@@ -439,6 +491,13 @@ export async function draftReply(
     return null;
   }
 
+  log(
+    JSON.stringify({
+      event: "draft_ok",
+      tweet_id: tweet.tweet_id,
+      elapsed_ms: Date.now() - startedAt,
+    }),
+  );
   return candidate.data;
 }
 
