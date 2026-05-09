@@ -58,6 +58,8 @@ interface FakeChildSpec {
   ignoreSigterm?: boolean;
   /** Simulate kill() throwing, e.g. because the process is already gone. */
   throwOnKill?: boolean;
+  /** Simulate stdin write throwing, e.g. because the child closed early. */
+  throwOnStdinWrite?: boolean;
 }
 
 function makeFakeChild(spec: FakeChildSpec): unknown {
@@ -76,6 +78,9 @@ function makeFakeChild(spec: FakeChildSpec): unknown {
   let stdinBuf = "";
   const stdin = new Writable({
     write(chunk, _enc, cb) {
+      if (spec.throwOnStdinWrite) {
+        throw new Error("stdin closed");
+      }
       stdinBuf += String(chunk);
       cb();
     },
@@ -169,6 +174,19 @@ const validReplyFieldsJson = JSON.stringify({
   kb_refs: ["tone.md"],
 });
 
+function wrapClaudeEnvelope(modelJsonString: string): string {
+  return JSON.stringify([
+    {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: modelJsonString,
+      total_cost_usd: 0.0,
+      session_id: "test-session",
+    },
+  ]);
+}
+
 beforeEach(() => {
   (spawn as unknown as ReturnType<typeof vi.fn>).mockReset();
   (spawnSync as unknown as ReturnType<typeof vi.fn>).mockReset();
@@ -248,7 +266,10 @@ describe("runDiscovery — happy path", () => {
       )
       // 2nd spawn: claude draft
       .mockImplementationOnce(() =>
-        makeFakeChild({ stdout: validReplyFieldsJson, exitCode: 0 }),
+        makeFakeChild({
+          stdout: wrapClaudeEnvelope(validReplyFieldsJson),
+          exitCode: 0,
+        }),
       );
 
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -308,6 +329,7 @@ describe("runDiscovery — happy path", () => {
     expect(counters.drafted_failed_timeout).toBe(0);
     expect(counters.drafted_failed_invalid_json).toBe(0);
     expect(counters.drafted_failed_exit).toBe(0);
+    expect(logs.some((l) => l.includes('"event":"draft_ok"'))).toBe(true);
 
     // ackSignal POST hit /signals/:id/ack with the matching id.
     const ackCall = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(([url]) =>
@@ -648,6 +670,207 @@ describe("runDiscovery — failure paths", () => {
     expect(candidatePost).toBeUndefined();
   });
 
+  it("d2) no_result_event: envelope without result is logged as invalid model JSON and NOT POSTed", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(() =>
+        makeFakeChild({
+          stdout: JSON.stringify([
+            {
+              tweet_id: "t-no-result",
+              tweet_url: "https://x.com/u/status/41",
+              author_handle: "@u",
+              tweet_text: "x",
+            },
+          ]),
+          exitCode: 0,
+        }),
+      )
+      .mockImplementationOnce(() =>
+        makeFakeChild({
+          stdout: JSON.stringify([
+            { type: "system", subtype: "init", session_id: "test-session" },
+            { type: "assistant", message: { content: [] } },
+          ]),
+          exitCode: 0,
+        }),
+      );
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      fetchMock as unknown as typeof fetch,
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+
+    await runDiscovery(
+      { id: "sig-no-result", kind: "discovery_requested", created_at: "x" },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+
+    expect(counters.drafted_failed_invalid_json).toBe(1);
+    expect(counters.drafted_ok).toBe(0);
+    const log = logs.find((l) => l.includes('"event":"draft_failed"'));
+    expect(log).toBeDefined();
+    expect(log).toContain('"reason":"no_result_event"');
+
+    const candidatePost = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/candidates") &&
+        init?.method === "POST",
+    );
+    expect(candidatePost).toBeUndefined();
+  });
+
+  it("d3) result_not_json: fenced valid ReplyFields JSON parses successfully", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeEnvelope(`\`\`\`json\n${validReplyFieldsJson}\n\`\`\``),
+        exitCode: 0,
+      }),
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-fenced-json",
+        tweet_url: "https://x.com/u/status/42",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toMatchObject({
+      tweet_id: "t-fenced-json",
+      suggested_reply: "Agree — autonomy matters.",
+    });
+    expect(counters.drafted_failed_invalid_json).toBe(0);
+    expect(logs.some((l) => l.includes('"event":"draft_ok"'))).toBe(true);
+  });
+
+  it("d3b) legacy flat ReplyFields JSON remains accepted as a defensive fallback", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: validReplyFieldsJson,
+        exitCode: 0,
+      }),
+    );
+
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-flat-json",
+        tweet_url: "https://x.com/u/status/420",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toMatchObject({
+      tweet_id: "t-flat-json",
+      suggested_reply: "Agree — autonomy matters.",
+    });
+    expect(logs.some((l) => l.includes('"event":"draft_ok"'))).toBe(true);
+  });
+
+  it("d3c) stdin write errors do not prevent parsing child stdout", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeEnvelope(validReplyFieldsJson),
+        exitCode: 0,
+        throwOnStdinWrite: true,
+      }),
+    );
+
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-stdin-write-error",
+        tweet_url: "https://x.com/u/status/421",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toMatchObject({
+      tweet_id: "t-stdin-write-error",
+      suggested_reply: "Agree — autonomy matters.",
+    });
+    expect(logs.some((l) => l.includes('"event":"draft_ok"'))).toBe(true);
+  });
+
+  it("d4) result_not_json: fenced prose logs result_tail and counts invalid model JSON", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeEnvelope("```\nSorry, I cannot help with that.\n```"),
+        exitCode: 0,
+      }),
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-fenced-prose",
+        tweet_url: "https://x.com/u/status/43",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toBeNull();
+    expect(counters.drafted_failed_invalid_json).toBe(1);
+    const log = logs.find((l) => l.includes('"event":"draft_failed"'));
+    expect(log).toBeDefined();
+    expect(log).toContain('"reason":"result_not_json"');
+    expect(log).toContain('"result_tail":"Sorry, I cannot help with that."');
+  });
+
+  it("d5) result_not_json: plain prose logs result_tail and counts invalid model JSON", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeEnvelope("Sorry, I cannot help with that."),
+        exitCode: 0,
+      }),
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-plain-prose",
+        tweet_url: "https://x.com/u/status/44",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toBeNull();
+    expect(counters.drafted_failed_invalid_json).toBe(1);
+    const log = logs.find((l) => l.includes('"event":"draft_failed"'));
+    expect(log).toBeDefined();
+    expect(log).toContain('"reason":"result_not_json"');
+    expect(log).toContain('"result_tail":"Sorry, I cannot help with that."');
+  });
+
   it("e) zod_validation: stdout is valid JSON missing required reply fields, NOT POSTed", async () => {
     (spawn as unknown as ReturnType<typeof vi.fn>)
       .mockImplementationOnce(() =>
@@ -665,7 +888,9 @@ describe("runDiscovery — failure paths", () => {
       )
       .mockImplementationOnce(() =>
         makeFakeChild({
-          stdout: JSON.stringify({ id: "x", missing: "everything" }),
+          stdout: wrapClaudeEnvelope(
+            JSON.stringify({ id: "x", missing: "everything" }),
+          ),
           exitCode: 0,
         }),
       );
@@ -695,6 +920,12 @@ describe("runDiscovery — failure paths", () => {
     const log = logs.find((l) => l.includes('"event":"draft_failed"'));
     expect(log).toBeDefined();
     expect(log).toContain('"reason":"zod_validation"');
+    const parsedLog = JSON.parse(log!);
+    expect(parsedLog.zod_issues[0]).toMatchObject({
+      path: expect.any(String),
+      message: expect.any(String),
+      code: expect.any(String),
+    });
 
     const candidatePost = (fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>).find(
       ([url, init]) =>
@@ -703,6 +934,79 @@ describe("runDiscovery — failure paths", () => {
         init?.method === "POST",
     );
     expect(candidatePost).toBeUndefined();
+  });
+
+  it("f) zod_validation: invalid candidate fields after valid reply parsing are logged", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeEnvelope(validReplyFieldsJson),
+        exitCode: 0,
+      }),
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-invalid-candidate",
+        tweet_url: "not-a-twitter-status-url",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toBeNull();
+    expect(counters.drafted_failed_zod).toBe(1);
+    const log = logs.find((l) => l.includes('"event":"draft_failed"'));
+    expect(log).toBeDefined();
+    expect(log).toContain('"reason":"zod_validation"');
+    expect(log).toContain("tweet_url");
+    const parsedLog = JSON.parse(log!);
+    expect(parsedLog.zod_issues[0]).toMatchObject({
+      path: expect.any(String),
+      message: expect.any(String),
+      code: expect.any(String),
+    });
+  });
+
+  it("g) zod_validation: root-level reply field failures keep a non-empty message", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeEnvelope(JSON.stringify("hello")),
+        exitCode: 0,
+      }),
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-root-zod",
+        tweet_url: "https://x.com/u/status/45",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toBeNull();
+    expect(counters.drafted_failed_zod).toBe(1);
+    const log = logs.find((l) => l.includes('"event":"draft_failed"'));
+    expect(log).toBeDefined();
+    const parsedLog = JSON.parse(log!);
+    expect(parsedLog).toMatchObject({
+      reason: "zod_validation",
+      tweet_id: "t-root-zod",
+    });
+    expect(parsedLog.zod_issues[0]).toMatchObject({
+      path: "",
+      message: expect.any(String),
+      code: expect.any(String),
+    });
+    expect(parsedLog.zod_issues[0].message.length).toBeGreaterThan(0);
   });
 });
 
@@ -714,7 +1018,7 @@ describe("draftReply — wraps tweet in <TWEET> delimiters via stdin", () => {
       (command: string, args: string[]) => {
         capturedSpawnArgs = { command, args };
         return makeFakeChild({
-          stdout: validReplyFieldsJson,
+          stdout: wrapClaudeEnvelope(validReplyFieldsJson),
           exitCode: 0,
           capturedStdin: captured,
         });
@@ -968,7 +1272,10 @@ describe("runDiscovery — auxiliary failure paths", () => {
         }),
       )
       .mockImplementationOnce(() =>
-        makeFakeChild({ stdout: validReplyFieldsJson, exitCode: 0 }),
+        makeFakeChild({
+          stdout: wrapClaudeEnvelope(validReplyFieldsJson),
+          exitCode: 0,
+        }),
       );
     const fetchMock = vi.fn(async (url: string) => {
       if (typeof url === "string" && url.endsWith("/candidates")) {
@@ -1021,7 +1328,10 @@ describe("runDiscovery — auxiliary failure paths", () => {
         }),
       )
       .mockImplementationOnce(() =>
-        makeFakeChild({ stdout: validReplyFieldsJson, exitCode: 0 }),
+        makeFakeChild({
+          stdout: wrapClaudeEnvelope(validReplyFieldsJson),
+          exitCode: 0,
+        }),
       );
     const fetchMock = vi.fn(async (url: string) => {
       if (typeof url === "string" && url.endsWith("/candidates")) {
