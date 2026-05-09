@@ -148,6 +148,23 @@ function parsePositiveNumberEnv(name: string, fallback: number): number {
   return fallback;
 }
 
+function parseJsonArrayEnv(name: string): string[] | null {
+  const raw = process.env[name];
+  if (raw === undefined) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((value) => typeof value === "string")) {
+      return parsed;
+    }
+  } catch {
+    // fall through to warning below
+  }
+  process.stderr.write(
+    `watcher warning: ${name} must be a JSON string array; using default scraper args\n`,
+  );
+  return null;
+}
+
 async function drainPendingDiscoverySignals(
   ctx: {
     config: WatcherConfig;
@@ -261,12 +278,13 @@ async function main(): Promise<void> {
     kbSystemPrompt: kb.systemPrompt,
     // Use the local tsx binary to drive the scraper. Resolve relative to
     // the repo's node_modules so the watcher works regardless of CWD.
-    scrapeCommand: fileURLToPath(
-      new URL("../../../node_modules/.bin/tsx", import.meta.url),
-    ),
-    scrapeArgs: [
-      fileURLToPath(new URL("./scrape-x-handles.ts", import.meta.url)),
-    ],
+    scrapeCommand:
+      process.env.WATCHER_SCRAPE_COMMAND ??
+      fileURLToPath(new URL("../../../node_modules/.bin/tsx", import.meta.url)),
+    scrapeArgs:
+      parseJsonArrayEnv("WATCHER_SCRAPE_ARGS_JSON") ?? [
+        fileURLToPath(new URL("./scrape-x-handles.ts", import.meta.url)),
+      ],
     claudeBin,
     summaryEveryN: SUMMARY_EVERY_N,
     toneBytes: kb.toneBytes,
