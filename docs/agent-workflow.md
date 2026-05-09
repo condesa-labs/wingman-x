@@ -4,7 +4,7 @@ This document tells **any MCP-capable agent** (Claude Code, Codex, Gemini CLI,
 another host) how to discover Twitter candidate tweets, draft voice-matched
 replies using the user's knowledge base, and POST the results to the local
 daemon. The reference implementation lives at
-[`.claude/skills/discover-twitter-candidates.md`](../.claude/skills/discover-twitter-candidates.md).
+[`.claude/skills/discover-twitter-candidates/SKILL.md`](../.claude/skills/discover-twitter-candidates/SKILL.md).
 
 The companion TypeScript HTTP client is `@twitter-helper/agent-kit`
 (`packages/agent-kit`). Everything on this page describes behaviour the agent

@@ -125,7 +125,7 @@ invocation depends on which MCP host you're using.
 ```
 
 The ready-made skill is at
-[`.claude/skills/discover-twitter-candidates.md`](../.claude/skills/discover-twitter-candidates.md).
+[`.claude/skills/discover-twitter-candidates/SKILL.md`](../.claude/skills/discover-twitter-candidates/SKILL.md).
 
 **Codex CLI / Gemini CLI / any other MCP host:**
 
