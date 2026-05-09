@@ -281,7 +281,13 @@ async function runScraper(ctx: RunContext): Promise<ScrapedTweet[] | null> {
 }
 
 function extractClaudeResultText(parsed: unknown): string | null {
-  if (!Array.isArray(parsed)) return null;
+  if (!Array.isArray(parsed)) {
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const record = parsed as Record<string, unknown>;
+    if (record.type !== "result") return null;
+    return typeof record.result === "string" ? record.result : "";
+  }
+
   for (let i = parsed.length - 1; i >= 0; i -= 1) {
     const event = parsed[i];
     if (typeof event !== "object" || event === null) continue;
@@ -421,21 +427,21 @@ export async function draftReply(
     return null;
   }
 
-  if (Array.isArray(parsed)) {
-    const resultText = extractClaudeResultText(parsed);
-    if (resultText === null) {
-      if (counters) counters.drafted_failed_invalid_json += 1;
-      log(
-        JSON.stringify({
-          event: "draft_failed",
-          reason: "no_result_event",
-          tweet_id: tweet.tweet_id,
-          elapsed_ms: Date.now() - startedAt,
-        }),
-      );
-      return null;
-    }
+  const resultText = extractClaudeResultText(parsed);
+  if (Array.isArray(parsed) && resultText === null) {
+    if (counters) counters.drafted_failed_invalid_json += 1;
+    log(
+      JSON.stringify({
+        event: "draft_failed",
+        reason: "no_result_event",
+        tweet_id: tweet.tweet_id,
+        elapsed_ms: Date.now() - startedAt,
+      }),
+    );
+    return null;
+  }
 
+  if (resultText !== null) {
     const cleaned = stripSingleMarkdownFence(resultText);
     try {
       parsed = JSON.parse(cleaned);

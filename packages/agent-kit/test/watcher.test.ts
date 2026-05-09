@@ -187,6 +187,17 @@ function wrapClaudeEnvelope(modelJsonString: string): string {
   ]);
 }
 
+function wrapClaudeSingleResultEnvelope(modelJsonString: string): string {
+  return JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: modelJsonString,
+    total_cost_usd: 0.0,
+    session_id: "test-session",
+  });
+}
+
 beforeEach(() => {
   (spawn as unknown as ReturnType<typeof vi.fn>).mockReset();
   (spawnSync as unknown as ReturnType<typeof vi.fn>).mockReset();
@@ -785,7 +796,34 @@ describe("runDiscovery — failure paths", () => {
     expect(logs.some((l) => l.includes('"event":"draft_ok"'))).toBe(true);
   });
 
-  it("d3c) stdin write errors do not prevent parsing child stdout", async () => {
+  it("d3c) single result-object envelope parses its result payload", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeSingleResultEnvelope(validReplyFieldsJson),
+        exitCode: 0,
+      }),
+    );
+
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-single-result-envelope",
+        tweet_url: "https://x.com/u/status/421",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toMatchObject({
+      tweet_id: "t-single-result-envelope",
+      suggested_reply: "Agree — autonomy matters.",
+    });
+    expect(logs.some((l) => l.includes('"event":"draft_ok"'))).toBe(true);
+  });
+
+  it("d3d) stdin write errors do not prevent parsing child stdout", async () => {
     (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
       makeFakeChild({
         stdout: wrapClaudeEnvelope(validReplyFieldsJson),
@@ -811,6 +849,69 @@ describe("runDiscovery — failure paths", () => {
       suggested_reply: "Agree — autonomy matters.",
     });
     expect(logs.some((l) => l.includes('"event":"draft_ok"'))).toBe(true);
+  });
+
+  it("d3e) single result-object envelope with non-string result logs result_not_json", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: { suggested_reply: "not text" },
+        }),
+        exitCode: 0,
+      }),
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-single-result-non-string",
+        tweet_url: "https://x.com/u/status/422",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toBeNull();
+    expect(counters.drafted_failed_invalid_json).toBe(1);
+    const log = logs.find((l) => l.includes('"event":"draft_failed"'));
+    expect(log).toBeDefined();
+    expect(log).toContain('"reason":"result_not_json"');
+    expect(log).toContain('"result_tail":""');
+  });
+
+  it("d3f) primitive stdout remains a zod-validation fallback, not an envelope", async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: JSON.stringify("hello"),
+        exitCode: 0,
+      }),
+    );
+
+    const counters = emptyCounters();
+    const logs: string[] = [];
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-primitive-stdout",
+        tweet_url: "https://x.com/u/status/423",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      { config: baseConfig, counters, log: (m) => logs.push(m) },
+    );
+
+    expect(out).toBeNull();
+    expect(counters.drafted_failed_invalid_json).toBe(0);
+    expect(counters.drafted_failed_zod).toBe(1);
+    const log = logs.find((l) => l.includes('"event":"draft_failed"'));
+    expect(log).toBeDefined();
+    expect(log).toContain('"reason":"zod_validation"');
   });
 
   it("d4) result_not_json: fenced prose logs result_tail and counts invalid model JSON", async () => {
