@@ -113,6 +113,25 @@ describe("kb seed classification", () => {
         cappedLogs.some((line) => line.includes('"event":"kb_seed_file_cap_reached"')),
       ).toBe(true);
 
+      const hiddenVault = mkdtempSync(join(tmpdir(), "kb-seed-hidden-"));
+      try {
+        writeFileSync(join(hiddenVault, ".one.md"), "# Hidden\n\nAI agent model");
+        writeFileSync(join(hiddenVault, ".two.md"), "# Hidden\n\nAI agent model");
+        writeFileSync(join(hiddenVault, ".three.md"), "# Hidden\n\nAI agent model");
+        const hiddenLogs: string[] = [];
+        expect(
+          await collectMarkdownNotes(hiddenVault, {
+            maxFiles: 2,
+            log: (line) => hiddenLogs.push(line),
+          }),
+        ).toEqual([]);
+        expect(
+          hiddenLogs.some((line) => line.includes('"event":"kb_seed_file_cap_reached"')),
+        ).toBe(true);
+      } finally {
+        rmSync(hiddenVault, { recursive: true, force: true });
+      }
+
       await expect(collectMarkdownNotes(notADir)).rejects.toThrow(
         /vault is not a real directory/,
       );

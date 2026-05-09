@@ -130,6 +130,9 @@ export async function collectMarkdownNotes(
       if (seenFiles >= maxFiles) break;
       const fullPath = join(dir, entry.name);
       const relativePath = normalizePath(relative(root, fullPath));
+      if (entry.isFile()) {
+        seenFiles += 1;
+      }
       if (shouldSkipPath(relativePath, entry.name)) continue;
       if (entry.isSymbolicLink()) {
         options.log?.(
@@ -144,9 +147,6 @@ export async function collectMarkdownNotes(
       if (entry.isDirectory()) {
         await visit(fullPath);
         continue;
-      }
-      if (entry.isFile()) {
-        seenFiles += 1;
       }
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
 
