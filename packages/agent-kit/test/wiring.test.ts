@@ -178,9 +178,11 @@ describe("wiring: watcher script against real daemon", () => {
       ),
     ).toBe(true);
 
-    const state = JSON.parse(readFileSync(join(stateDir, "state.json"), "utf8")) as {
-      signals: Record<string, { status: string }>;
-    };
-    expect(Object.values(state.signals).every((s) => s.status === "acked")).toBe(true);
+    await expect.poll(async () => {
+      const state = JSON.parse(readFileSync(join(stateDir, "state.json"), "utf8")) as {
+        signals: Record<string, { status: string }>;
+      };
+      return Object.values(state.signals).every((s) => s.status === "acked");
+    }, { timeout: 5_000 }).toBe(true);
   }, 20_000);
 });
