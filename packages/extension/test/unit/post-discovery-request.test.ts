@@ -10,7 +10,7 @@ import {
 // The only side channel is `fetch` — we stub it per test.
 
 const PORT = 53827;
-const ENDPOINT = `http://localhost:${PORT}/signals`;
+const ENDPOINT = `http://127.0.0.1:${PORT}/signals`;
 const NEW_PORT = 53830;
 
 function stubFetch(
@@ -110,7 +110,7 @@ describe("postDiscoveryRequestWithStaleRecovery", () => {
     stubFetch(async (url) => {
       const requestUrl = String(url);
       urls.push(requestUrl);
-      if (requestUrl === `http://localhost:${PORT}/signals`) {
+      if (requestUrl === `http://127.0.0.1:${PORT}/signals`) {
         throw new TypeError("stale port");
       }
       return new Response(JSON.stringify({ id: "abc", status: "pending" }), {
@@ -124,8 +124,8 @@ describe("postDiscoveryRequestWithStaleRecovery", () => {
       postDiscoveryRequestWithStaleRecovery(PORT),
     ).resolves.toEqual({ port: NEW_PORT, ok: true });
     expect(urls).toEqual([
-      `http://localhost:${PORT}/signals`,
-      `http://localhost:${NEW_PORT}/signals`,
+      `http://127.0.0.1:${PORT}/signals`,
+      `http://127.0.0.1:${NEW_PORT}/signals`,
     ]);
   });
 

@@ -17,7 +17,7 @@ export interface CandidateAddedEvent {
   type: "candidate_added";
   tweet_id: string;
   author_handle: string;
-  match_category: "selected" | "topic" | "trending";
+  match_category: "selected" | "topic" | "trending" | "explore";
 }
 
 /**

@@ -14,6 +14,13 @@
 
 export const STORAGE_KEY = "daemon_port";
 
+/**
+ * Use the numeric IPv4 loopback to avoid Happy Eyeballs (RFC 8305)
+ * delays: Chrome tries ::1 first when resolving "localhost", and the
+ * IPv6→IPv4 fallback often exceeds the 150 ms probe budget.
+ */
+export const DAEMON_HOST = "127.0.0.1";
+
 export const PORT_RANGE: readonly number[] = Object.freeze([
   53827, 53828, 53829, 53830, 53831, 53832, 53833, 53834, 53835, 53836,
 ]);
@@ -212,14 +219,14 @@ export async function fetchWithPortRetry(
   const cached = await getCachedPort({ storage });
   if (cached !== null) {
     try {
-      return await fetchImpl(`http://localhost:${cached}${path}`, init);
+      return await fetchImpl(`http://${DAEMON_HOST}:${cached}${path}`, init);
     } catch (err) {
       // Transport failure — drop cache and rescan ONCE.
       await storage.remove(STORAGE_KEY);
       // Preserve the original error to rethrow if the rescan also fails.
       const fresh = await discoverPort({ ...options, storage });
       if (fresh === null) throw err;
-      return fetchImpl(`http://localhost:${fresh}${path}`, init);
+      return fetchImpl(`http://${DAEMON_HOST}:${fresh}${path}`, init);
     }
   }
 
@@ -227,7 +234,7 @@ export async function fetchWithPortRetry(
   if (fresh === null) {
     throw new Error("daemon not running");
   }
-  return fetchImpl(`http://localhost:${fresh}${path}`, init);
+  return fetchImpl(`http://${DAEMON_HOST}:${fresh}${path}`, init);
 }
 
 async function probe(
@@ -241,7 +248,7 @@ async function probe(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(`http://localhost:${port}/health`, {
+    const res = await fetchImpl(`http://${DAEMON_HOST}:${port}/health`, {
       method: "GET",
       signal: controller.signal,
     });

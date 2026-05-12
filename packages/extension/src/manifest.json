@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Twitter Helper",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Agent-agnostic semi-auto reply assistant for Twitter / X.",
   "permissions": ["storage", "alarms", "notifications"],
   "host_permissions": [
     "https://twitter.com/*",
     "https://x.com/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "background.js",

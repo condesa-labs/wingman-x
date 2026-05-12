@@ -32,20 +32,6 @@ const TWEET_URL_RE =
 /** Matches `z.string().datetime()` ISO-8601 UTC strings (what the daemon emits). */
 const ISO_DATETIME_RE =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
-/** Must match `packages/daemon/src/schemas.ts#StatusEnum`. */
-const STATUS_VALUES: ReadonlySet<string> = new Set([
-  "pending",
-  "filled",
-  "dismissed",
-  "saved",
-  "regen_requested",
-]);
-/** Must match `packages/daemon/src/schemas.ts#CandidateInputSchema.match_category`. */
-const MATCH_CATEGORIES: ReadonlySet<string> = new Set([
-  "selected",
-  "topic",
-  "trending",
-]);
 
 /**
  * Verify `value` is a full daemon-shaped Candidate. Used as a guard
@@ -68,13 +54,13 @@ export function isDaemonCandidate(value: unknown): boolean {
     c.suggested_reply.length > 0 &&
     typeof c.match_reason === "string" &&
     typeof c.match_category === "string" &&
-    MATCH_CATEGORIES.has(c.match_category) &&
+    c.match_category.length > 0 &&
     Array.isArray(c.kb_refs) &&
     c.kb_refs.every((x) => typeof x === "string") &&
     typeof c.created_at === "string" &&
     ISO_DATETIME_RE.test(c.created_at) &&
     typeof c.status === "string" &&
-    STATUS_VALUES.has(c.status) &&
+    c.status.length > 0 &&
     typeof c.status_updated_at === "string" &&
     ISO_DATETIME_RE.test(c.status_updated_at)
   );

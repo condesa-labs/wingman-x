@@ -334,7 +334,7 @@ async function ensureEventStream(): Promise<void> {
   try {
     const port = await ensurePort();
     if (port === null) return;
-    const res = await fetch(`http://localhost:${port}/events`);
+    const res = await fetch(`http://127.0.0.1:${port}/events`);
     // Defense in depth against a stale cached port pointing at a
     // co-located service: reject the stream if the identity header
     // is missing. Parallel to content-script's check in review-loop f14.

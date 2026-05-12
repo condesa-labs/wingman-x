@@ -1,7 +1,7 @@
 {
   "name": "chrome-twitter-helper",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Chrome extension + local companion daemon for agent-generated, voice-matched Twitter replies",
   "workspaces": [
     "packages/daemon",

@@ -6,18 +6,25 @@
  * (excluding pinned/reposts/replies on a best-effort basis), and
  * emit a single JSON array of RawTweet tuples to stdout.
  *
+ * Dynamic rotation: always scrapes all Tier 1 (core) handles, then
+ * randomly samples ROTATION_SAMPLE handles from the evaluated pool
+ * (handle-evaluation.json, top scorers). This prevents filter-bubble
+ * effects by introducing fresh sources every run.
+ *
  * Env:
- *   CDP_URL         — default http://127.0.0.1:9223
- *   HANDLES_FILE    — default ~/.twitter-helper/kb/selected-handles.txt
- *   PER_HANDLE      — how many tweets per handle, default 3
- *   PER_HANDLE_MS   — per-handle time budget, default 8000
- *   MAX_HANDLES     — hard cap on handles processed per run, default 14
- *                     (the file is tier-sorted; 14 = just Tier 1).
- *                     Set higher to sample into Tier 2 (background list).
+ *   CDP_URL            — default http://127.0.0.1:9223
+ *   HANDLES_FILE       — default ~/.twitter-helper/kb/selected-handles.txt
+ *   EVALUATION_FILE    — default ~/.twitter-helper/handle-evaluation.json
+ *   PER_HANDLE         — how many tweets per handle, default 3
+ *   PER_HANDLE_MS      — per-handle time budget, default 8000
+ *   MAX_HANDLES        — hard cap on total handles per run, default 35
+ *   ROTATION_SAMPLE    — how many from evaluated pool to sample, default 15
+ *   ROTATION_POOL_SIZE — top N from evaluation to sample from, default 100
+ *   MIN_EVAL_SCORE     — minimum evaluation score to be eligible, default 30
  */
 import "../../../scripts/load-env.mjs";
 import { chromium, type Page } from "playwright";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -25,9 +32,15 @@ const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9223";
 const HANDLES_FILE =
   process.env.HANDLES_FILE ??
   resolve(homedir(), ".twitter-helper/kb/selected-handles.txt");
+const EVALUATION_FILE =
+  process.env.EVALUATION_FILE ??
+  resolve(homedir(), ".twitter-helper/handle-evaluation.json");
 const PER_HANDLE = Number(process.env.PER_HANDLE ?? "3");
 const PER_HANDLE_MS = Number(process.env.PER_HANDLE_MS ?? "8000");
-const MAX_HANDLES = Number(process.env.MAX_HANDLES ?? "14");
+const MAX_HANDLES = Number(process.env.MAX_HANDLES ?? "35");
+const ROTATION_SAMPLE = Number(process.env.ROTATION_SAMPLE ?? "15");
+const ROTATION_POOL_SIZE = Number(process.env.ROTATION_POOL_SIZE ?? "100");
+const MIN_EVAL_SCORE = Number(process.env.MIN_EVAL_SCORE ?? "30");
 
 interface RawTweet {
   tweet_id: string;
@@ -41,18 +54,80 @@ function log(s: string) {
   process.stderr.write(`[handles] ${s}\n`);
 }
 
-function parseHandles(): string[] {
+interface EvaluationResult {
+  handle: string;
+  total: number;
+}
+
+interface EvaluationFile {
+  results: EvaluationResult[];
+}
+
+function parseTier1Handles(): string[] {
   const text = readFileSync(HANDLES_FILE, "utf-8");
-  // The file is tier-sorted: Tier 1 (priority) first, Tier 2 second.
-  // We slice by MAX_HANDLES rather than splitting by section because
-  // callers just want "the first N most-important" and the file is the
-  // canonical ordering.
-  const all = text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0 && !l.startsWith("#"))
-    .map((l) => (l.startsWith("@") ? l.slice(1) : l));
-  return all.slice(0, MAX_HANDLES);
+  const handles: string[] = [];
+  let inTier1 = false;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("## Tier 1")) { inTier1 = true; continue; }
+    if (trimmed.startsWith("## Tier 2")) break;
+    if (!inTier1) continue;
+    if (trimmed.startsWith("#") || trimmed.length === 0) continue;
+    handles.push(trimmed.startsWith("@") ? trimmed.slice(1) : trimmed);
+  }
+  return handles;
+}
+
+function loadRotationPool(): string[] {
+  if (!existsSync(EVALUATION_FILE)) {
+    log("no evaluation file found — rotation pool empty");
+    return [];
+  }
+  try {
+    const data = JSON.parse(
+      readFileSync(EVALUATION_FILE, "utf-8"),
+    ) as EvaluationFile;
+    return data.results
+      .filter((r) => r.total >= MIN_EVAL_SCORE)
+      .slice(0, ROTATION_POOL_SIZE)
+      .map((r) => (r.handle.startsWith("@") ? r.handle.slice(1) : r.handle));
+  } catch {
+    log("failed to parse evaluation file — rotation pool empty");
+    return [];
+  }
+}
+
+function sampleWithoutReplacement(arr: string[], n: number): string[] {
+  const copy = [...arr];
+  const result: string[] = [];
+  for (let i = 0; i < Math.min(n, copy.length); i++) {
+    const idx = Math.floor(Math.random() * copy.length);
+    result.push(copy[idx]);
+    copy[idx] = copy[copy.length - 1];
+    copy.pop();
+  }
+  return result;
+}
+
+function parseHandles(): string[] {
+  const tier1 = parseTier1Handles();
+  const tier1Set = new Set(tier1.map((h) => h.toLowerCase()));
+
+  const rotationPool = loadRotationPool().filter(
+    (h) => !tier1Set.has(h.toLowerCase()),
+  );
+
+  const sampled = sampleWithoutReplacement(rotationPool, ROTATION_SAMPLE);
+  const combined = [...tier1, ...sampled];
+
+  log(
+    `tier1=${tier1.length} rotation_sampled=${sampled.length} total=${combined.length}`,
+  );
+  if (sampled.length > 0) {
+    log(`rotation picks: ${sampled.map((h) => "@" + h).join(", ")}`);
+  }
+
+  return combined.slice(0, MAX_HANDLES);
 }
 
 async function scrapeHandle(

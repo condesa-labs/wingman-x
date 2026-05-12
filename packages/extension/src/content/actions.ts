@@ -107,7 +107,7 @@ async function postAction(
 ): Promise<void> {
   try {
     const res = await fetch(
-      `http://localhost:${port}/candidates/${encodeURIComponent(tweetId)}/action`,
+      `http://127.0.0.1:${port}/candidates/${encodeURIComponent(tweetId)}/action`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
