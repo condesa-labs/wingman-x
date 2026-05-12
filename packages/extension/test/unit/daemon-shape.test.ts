@@ -43,18 +43,27 @@ describe("isDaemonCandidate", () => {
     ).toBe(false);
   });
 
-  it("rejects when status is not in the daemon's enum", () => {
+  it("accepts unknown status values for forward-compatibility", () => {
     expect(
       isDaemonCandidate({ ...VALID_CANDIDATE, status: "unknown" }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isDaemonCandidate({ ...VALID_CANDIDATE, status: "anything" }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("rejects when match_category is not in the enum", () => {
+  it("accepts unknown match_category values for forward-compatibility", () => {
     expect(
-      isDaemonCandidate({ ...VALID_CANDIDATE, match_category: "other" }),
+      isDaemonCandidate({ ...VALID_CANDIDATE, match_category: "explore" }),
+    ).toBe(true);
+  });
+
+  it("rejects empty status or match_category", () => {
+    expect(
+      isDaemonCandidate({ ...VALID_CANDIDATE, status: "" }),
+    ).toBe(false);
+    expect(
+      isDaemonCandidate({ ...VALID_CANDIDATE, match_category: "" }),
     ).toBe(false);
   });
 

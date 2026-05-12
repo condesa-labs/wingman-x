@@ -54,7 +54,7 @@ function jsonResponse(body: string, status = 200): Response {
 function fakeFetch(okPort: number | null): typeof fetch {
   return ((input: string | URL | Request) => {
     const url = typeof input === "string" ? input : input.toString();
-    const m = /localhost:(\d+)/.exec(url);
+    const m = /(?:localhost|127\.0\.0\.1):(\d+)/.exec(url);
     const port = m ? Number(m[1]) : NaN;
     if (okPort !== null && port === okPort) {
       return Promise.resolve(jsonResponse(DAEMON_HEALTH_BODY));
@@ -105,7 +105,7 @@ describe("discoverPort", () => {
     const storage = makeStorage();
     const unrelatedOk = ((input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input.toString();
-      const m = /localhost:(\d+)/.exec(url);
+      const m = /(?:localhost|127\.0\.0\.1):(\d+)/.exec(url);
       const port = m ? Number(m[1]) : NaN;
       // Port 53830 returns 200 with a NON-daemon body — should NOT be cached.
       if (port === 53830) {
@@ -129,7 +129,7 @@ describe("discoverPort", () => {
     const storage = makeStorage();
     const textOk = ((input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input.toString();
-      const m = /localhost:(\d+)/.exec(url);
+      const m = /(?:localhost|127\.0\.0\.1):(\d+)/.exec(url);
       const port = m ? Number(m[1]) : NaN;
       if (port === 53827) {
         // Some random service replies 200 + "OK" text.
@@ -157,7 +157,7 @@ describe("discoverPort", () => {
 
     const slowFetch = ((input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input.toString();
-      const m = /localhost:(\d+)/.exec(url);
+      const m = /(?:localhost|127\.0\.0\.1):(\d+)/.exec(url);
       const port = m ? Number(m[1]) : NaN;
       probeCountPerPort.set(port, (probeCountPerPort.get(port) ?? 0) + 1);
       return new Promise<Response>((resolveFetch) => {
@@ -201,7 +201,7 @@ describe("discoverPort", () => {
       (delayMs: number): typeof fetch =>
       ((input: string | URL | Request) => {
         const url = typeof input === "string" ? input : input.toString();
-        const m = /localhost:(\d+)/.exec(url);
+        const m = /(?:localhost|127\.0\.0\.1):(\d+)/.exec(url);
         const port = m ? Number(m[1]) : NaN;
         return new Promise<Response>((resolveFetch) => {
           setTimeout(() => {
@@ -256,7 +256,7 @@ describe("discoverPort", () => {
     const probeCallsPerPort = new Map<number, number>();
     const slowFetch = ((input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input.toString();
-      const m = /localhost:(\d+)/.exec(url);
+      const m = /(?:localhost|127\.0\.0\.1):(\d+)/.exec(url);
       const port = m ? Number(m[1]) : NaN;
       probeCallsPerPort.set(port, (probeCallsPerPort.get(port) ?? 0) + 1);
       return new Promise<Response>((resolveFetch) => {
@@ -335,7 +335,7 @@ describe("fetchWithPortRetry", () => {
     const adaptiveFetch = ((input: string | URL | Request) => {
       calls += 1;
       const url = typeof input === "string" ? input : input.toString();
-      const m = /localhost:(\d+)/.exec(url);
+      const m = /(?:localhost|127\.0\.0\.1):(\d+)/.exec(url);
       const port = m ? Number(m[1]) : NaN;
 
       // Call 1: cached-port request against 53827 -> transport fail.

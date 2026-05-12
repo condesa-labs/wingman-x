@@ -22,7 +22,7 @@ export const StatusSchema = z.enum([
 ]);
 export type Status = z.infer<typeof StatusSchema>;
 
-export const MatchCategorySchema = z.enum(["selected", "topic", "trending"]);
+export const MatchCategorySchema = z.enum(["selected", "topic", "trending", "explore"]);
 export type MatchCategory = z.infer<typeof MatchCategorySchema>;
 
 export const CandidateSourceSchema = z.enum(["handles", "viral_pool"]);

@@ -109,7 +109,7 @@ export const CandidateInputSchema = z.object({
   tweet_text: z.string(),
   suggested_reply: z.string().min(1),
   match_reason: z.string(),
-  match_category: z.enum(["selected", "topic", "trending"]),
+  match_category: z.enum(["selected", "topic", "trending", "explore"]),
   source: CandidateSourceSchema.default("handles"),
   kb_refs: z.array(z.string()).default([]),
   created_at: z.string().datetime().optional(),

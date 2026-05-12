@@ -35,7 +35,7 @@ interface CandidatesResponseBody {
 export async function fetchCandidatesByPort(
   port: number,
 ): Promise<RawCandidate[]> {
-  const res = await fetch(`http://localhost:${port}/candidates`, {
+  const res = await fetch(`http://127.0.0.1:${port}/candidates`, {
     method: "GET",
     headers: { accept: "application/json" },
   });

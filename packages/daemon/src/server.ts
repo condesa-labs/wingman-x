@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { homedir } from "node:os";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { z, ZodError } from "zod";
@@ -20,6 +21,7 @@ import {
   type CandidateInput,
   type ObservedTweet,
   type Signal,
+  type StateFile,
 } from "./schemas.js";
 import {
   candidatesList,
@@ -28,7 +30,7 @@ import {
 } from "./state.js";
 import { EventBus } from "./events.js";
 import { Readable } from "node:stream";
-import { computeScore } from "./score.js";
+import { computeScore, computeNoveltyBonus, type NoveltyContext } from "./score.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -218,7 +220,7 @@ export async function buildServer(
     const newlyAdded: Array<{
       tweet_id: string;
       author_handle: string;
-      match_category: "selected" | "topic" | "trending";
+      match_category: "selected" | "topic" | "trending" | "explore";
     }> = [];
     for (const input of parsed.data.candidates) {
       const existing = state.candidates[input.tweet_id];
@@ -289,12 +291,27 @@ export async function buildServer(
       return reply.code(400).send(invalidRequest(parsed.error));
     }
     const { limit, min_score } = parsed.data;
-    return {
-      tweets: Object.values(state.tweet_pool)
-        .filter((tweet) => tweet.score >= min_score)
-        .sort(compareTweetPoolEntries)
-        .slice(0, limit),
-    };
+
+    const noveltyCtx = buildNoveltyContext(state);
+    const ranked = Object.values(state.tweet_pool)
+      .filter((tweet) => tweet.score >= min_score)
+      .map((tweet) => ({
+        ...tweet,
+        _effectiveScore:
+          tweet.score +
+          computeNoveltyBonus(tweet.author_handle, noveltyCtx),
+      }))
+      .sort((a, b) => {
+        const byScore = b._effectiveScore - a._effectiveScore;
+        if (byScore !== 0) return byScore;
+        const byObserved = b.observed_at.localeCompare(a.observed_at);
+        if (byObserved !== 0) return byObserved;
+        return a.tweet_id.localeCompare(b.tweet_id);
+      })
+      .slice(0, limit)
+      .map(({ _effectiveScore, ...tweet }) => tweet);
+
+    return { tweets: ranked };
   });
 
   /**
@@ -497,6 +514,42 @@ export async function buildServer(
   );
 
   return app;
+}
+
+function loadTier1Handles(): ReadonlySet<string> {
+  const handlesPath = resolve(
+    homedir(),
+    ".twitter-helper/kb/selected-handles.txt",
+  );
+  if (!existsSync(handlesPath)) return new Set();
+  const text = readFileSync(handlesPath, "utf-8");
+  const handles = new Set<string>();
+  let inTier1 = false;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("## Tier 1")) {
+      inTier1 = true;
+      continue;
+    }
+    if (trimmed.startsWith("## Tier 2")) break;
+    if (!inTier1) continue;
+    if (trimmed.startsWith("#") || trimmed.length === 0) continue;
+    handles.add(trimmed.toLowerCase());
+  }
+  return handles;
+}
+
+let _tier1Cache: ReadonlySet<string> | null = null;
+function getTier1Handles(): ReadonlySet<string> {
+  if (_tier1Cache === null) _tier1Cache = loadTier1Handles();
+  return _tier1Cache;
+}
+
+function buildNoveltyContext(state: StateFile): NoveltyContext {
+  const candidateHandles = new Set<string>(
+    Object.values(state.candidates).map((c: Candidate) => c.author_handle.toLowerCase()),
+  );
+  return { tier1Handles: getTier1Handles(), candidateHandles };
 }
 
 function invalidRequest(err: ZodError): {

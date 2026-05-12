@@ -31,7 +31,7 @@ async function flush(): Promise<void> {
   }
 
   try {
-    const res = await fetch(`http://localhost:${port}/tweets/observed`, {
+    const res = await fetch(`http://127.0.0.1:${port}/tweets/observed`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ tweets: batch }),

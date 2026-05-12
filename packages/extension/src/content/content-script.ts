@@ -326,7 +326,7 @@ async function tryFetchSuggestion(
 ): Promise<Response | null> {
   try {
     return await fetch(
-      `http://localhost:${port}/suggestion?tweet_id=${encodeURIComponent(tweetId)}`,
+      `http://127.0.0.1:${port}/suggestion?tweet_id=${encodeURIComponent(tweetId)}`,
       { method: "GET", signal },
     );
   } catch (err) {
