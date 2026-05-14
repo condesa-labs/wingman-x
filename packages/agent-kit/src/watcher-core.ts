@@ -143,6 +143,13 @@ export const SAFETY_BOUNDARY_PROMPT = [
   "- \"explore\": tweet is high-quality but OUTSIDE known topics. For explore, suggested_reply MUST be a genuine technical question — ask about a specific detail the author cares about. Do NOT force-fit KB topics. Use the tone guide's 'ask a technical detail the author truly cares about' pattern.",
   "",
   "Prefer \"explore\" over a weak \"topic\" match. If you cannot provide a concrete example or data point from the KB, use \"explore\" and ask a question instead of generating a generic agreement reply.",
+  "",
+  "HUMAN FEEL (overrides all other style rules when in conflict):",
+  "- suggested_reply MUST sound like a real person chatting with a friend, NOT like a polished analyst note.",
+  "- Mix professional insight with casual human reactions: 语气词 (哈哈, 确实, 卧槽, 说实话, 真的) and sentence-final particles (吧, 啊, 嘛). For English: honestly, lol, damn, tbh.",
+  "- Technical terms are fine, but sandwich them between casual/conversational language. Never stack jargon without breathing room.",
+  "- Pick ONE point from the KB to develop. Do NOT compress 3 ideas into one reply.",
+  "- If the reply reads like it could appear in a research report, rewrite it with more oral texture.",
 ].join("\n");
 
 /**
