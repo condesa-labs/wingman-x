@@ -146,7 +146,7 @@ export const SAFETY_BOUNDARY_PROMPT = [
   "",
   "HUMAN FEEL (overrides all other style rules when in conflict):",
   "- suggested_reply MUST sound like a real person chatting with a friend, NOT like a polished analyst note.",
-  "- Mix professional insight with casual human reactions: 语气词 (哈哈, 确实, 卧槽, 说实话, 真的) and sentence-final particles (吧, 啊, 嘛). For English: honestly, lol, damn, tbh.",
+  "- Mix professional insight with casual human reactions: sentence-final particles (吧, 啊, 嘛) and context-appropriate 语气词 (确实, 说实话, 真的). Use 哈哈 ONLY when genuinely amused — never as a default opener. Most replies need zero interjections; oral texture comes from sentence rhythm and particles, not forced filler.",
   "- Technical terms are fine, but sandwich them between casual/conversational language. Never stack jargon without breathing room.",
   "- Pick ONE point from the KB to develop. Do NOT compress 3 ideas into one reply.",
   "- If the reply reads like it could appear in a research report, rewrite it with more oral texture.",

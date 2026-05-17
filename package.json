@@ -24,6 +24,8 @@
     "launch-chrome": "bash scripts/launch-chrome.sh"
   },
   "dependencies": {
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "playwright": "^1.60.0",
+    "puppeteer-core": "^24.43.1"
   }
 }
