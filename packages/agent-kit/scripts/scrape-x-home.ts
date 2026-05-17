@@ -17,7 +17,7 @@
  * failure-mode contract in docs/agent-workflow.md.
  */
 import "../../../scripts/load-env.mjs";
-import { chromium, type BrowserContext, type Page } from "playwright";
+import puppeteer, { type Browser, type Page } from "puppeteer-core";
 
 const CDP_URL = process.env.CDP_URL ?? "http://localhost:9222";
 const MAX_TWEETS = Number(process.env.MAX_TWEETS ?? "20");
@@ -35,17 +35,22 @@ function log(msg: string): void {
   process.stderr.write(`[scrape] ${msg}\n`);
 }
 
-async function findOrOpenHome(context: BrowserContext): Promise<Page> {
-  const existing = context
-    .pages()
-    .find((p) => /https:\/\/(?:www\.)?(?:x|twitter)\.com\/home\b/.test(p.url()));
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function findOrOpenHome(browser: Browser): Promise<Page> {
+  const pages = await browser.pages();
+  const existing = pages.find((p) =>
+    /https:\/\/(?:www\.)?(?:x|twitter)\.com\/home\b/.test(p.url()),
+  );
   if (existing) {
     log(`using existing x.com/home tab: ${existing.url()}`);
     await existing.bringToFront();
     return existing;
   }
   log("no x.com/home tab found — opening a new one");
-  const page = await context.newPage();
+  const page = await browser.newPage();
   await page.goto("https://x.com/home", {
     waitUntil: "domcontentloaded",
     timeout: 25000,
@@ -58,7 +63,7 @@ async function detectLoginGate(page: Page): Promise<{
   url: string;
   articleCount: number;
 }> {
-  await page.waitForTimeout(1500);
+  await delay(1500);
   for (let attempt = 0; attempt < 3; attempt++) {
     const info = await page.evaluate(() => ({
       url: location.href,
@@ -75,7 +80,7 @@ async function detectLoginGate(page: Page): Promise<{
     if (redirected) {
       return { loggedIn: false, url: info.url, articleCount: info.articleCount };
     }
-    await page.waitForTimeout(1500);
+    await delay(1500);
   }
   const final = await page.evaluate(() => ({
     url: location.href,
@@ -148,22 +153,17 @@ async function scrapeBounded(page: Page): Promise<RawTweet[]> {
     } else {
       stagnantScrolls = 0;
     }
-    await page.mouse.wheel(0, 1800);
-    await page.waitForTimeout(SCROLL_DELAY);
+    await page.evaluate(() => window.scrollBy(0, 1800));
+    await delay(SCROLL_DELAY);
   }
   return results.slice(0, MAX_TWEETS);
 }
 
 async function main(): Promise<void> {
   log(`connecting to ${CDP_URL}`);
-  const browser = await chromium.connectOverCDP(CDP_URL);
+  const browser = await puppeteer.connect({ browserURL: CDP_URL });
   try {
-    const contexts = browser.contexts();
-    if (contexts.length === 0) {
-      throw new Error("CDP_EMPTY: attached browser has no contexts");
-    }
-    const context = contexts[0];
-    const page = await findOrOpenHome(context);
+    const page = await findOrOpenHome(browser);
 
     const gate = await detectLoginGate(page);
     log(`login probe: ${JSON.stringify(gate)}`);
@@ -182,7 +182,7 @@ async function main(): Promise<void> {
     log(`extracted ${results.length} unique tweets`);
     process.stdout.write(JSON.stringify(results, null, 2) + "\n");
   } finally {
-    await browser.close().catch(() => {});
+    browser.disconnect();
   }
 }
 
