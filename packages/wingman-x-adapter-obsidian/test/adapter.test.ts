@@ -52,7 +52,9 @@ describe("Obsidian vault reads", () => {
       title: "Launch Notes",
       markdown: expect.stringContaining("grounded in the vault"),
     });
-    await expect(adapter.getHandles()).resolves.toEqual({ tiers: [] });
+    const handles = await adapter.getHandles();
+    expect(handles.tiers.length).toBeGreaterThan(0);
+    expect(handles.tiers.flatMap((tier) => tier.handles).length).toBeGreaterThan(0);
   });
 
   it("honors configured root and file names when resolving vault paths", async () => {

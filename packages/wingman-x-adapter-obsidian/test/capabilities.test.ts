@@ -4,12 +4,12 @@ import { describe, expect, it } from "vitest";
 import { configSchema, createAdapter } from "../src/index.js";
 
 describe("deferred capabilities", () => {
-  it("does not implement bootstrapTone, searchLibrary, or watch in CP05", () => {
+  it("implements bootstrapTone while keeping searchLibrary and watch deferred in CP06", () => {
     const adapter = createAdapter(
       configSchema.parse({ vaultPath: resolve(import.meta.dirname, "fixtures/sample-vault") }),
     );
 
-    expect(adapter.bootstrapTone).toBeUndefined();
+    expect(adapter.bootstrapTone).toBeTypeOf("function");
     expect(adapter.searchLibrary).toBeUndefined();
     expect(adapter.watch).toBeUndefined();
   });

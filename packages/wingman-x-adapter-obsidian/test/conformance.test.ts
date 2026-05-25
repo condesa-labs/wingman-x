@@ -18,11 +18,13 @@ describe("@wingman-x/adapter-obsidian conformance", () => {
     suiteName: "sample Obsidian vault fixture",
   });
 
-  it("uses the shared handles parser for the empty handles fixture", async () => {
+  it("uses the shared handles parser for the populated handles fixture", async () => {
     const markdown = readFileSync(join(vaultPath, "WingmanX", "handles.md"), "utf8");
     const adapter = createAdapter(configSchema.parse({ vaultPath }));
+    const parsed = parseHandles(markdown, "adapter-obsidian");
 
-    expect(markdown).toBe("");
-    await expect(adapter.getHandles()).resolves.toEqual(parseHandles(markdown, "adapter-obsidian"));
+    expect(markdown.trim()).not.toBe("");
+    expect(parsed.tiers.some((tier) => tier.handles.length > 0)).toBe(true);
+    await expect(adapter.getHandles()).resolves.toEqual(parsed);
   });
 });
