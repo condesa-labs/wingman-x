@@ -31,6 +31,7 @@ vi.mock("node:child_process", () => {
 import { spawn, spawnSync } from "node:child_process";
 import {
   RECONNECT_BACKOFF_MS,
+  SAFETY_BOUNDARY_PROMPT,
   dispatchSignal,
   fetchTweetPoolTop,
   runDiscovery,
@@ -214,6 +215,49 @@ afterEach(() => {
 describe("RECONNECT_BACKOFF_MS", () => {
   it("is the documented sequence [1s, 2s, 5s, 10s, 30s]", () => {
     expect(RECONNECT_BACKOFF_MS).toEqual([1000, 2000, 5000, 10000, 30000]);
+  });
+});
+
+describe("SAFETY_BOUNDARY_PROMPT — reply language mirrors the tweet", () => {
+  // Business invariant: the drafted reply MUST be in the same language as
+  // the tweet. An English tweet must never get a Chinese reply. This guards
+  // against the prompt's Chinese-heavy HUMAN-FEEL guidance silently biasing
+  // every reply toward Chinese.
+
+  it("instructs the model to reply in the tweet's own language", () => {
+    // Must name the rule explicitly and mention both languages so the model
+    // cannot treat Chinese as the default base language.
+    expect(SAFETY_BOUNDARY_PROMPT).toMatch(/LANGUAGE/);
+    expect(SAFETY_BOUNDARY_PROMPT).toMatch(/English tweet/i);
+    expect(SAFETY_BOUNDARY_PROMPT).toMatch(/reply (?:fully |entirely )?in English/i);
+  });
+
+  it("routes mixed Chinese-English tweets to a Chinese reply (only fully-English → English)", () => {
+    // Refined policy: a mixed CJK+Latin tweet must reply in Chinese; only a
+    // fully-English tweet earns an English reply. Guards against a tweet with
+    // any Chinese being answered in all-English.
+    expect(SAFETY_BOUNDARY_PROMPT).toMatch(/mixed Chinese-English/i);
+    expect(SAFETY_BOUNDARY_PROMPT).toMatch(/fully[- ]English tweet/i);
+  });
+
+  it("scopes Chinese sentence-final particles to Chinese replies only", () => {
+    // The 吧/啊/嘛 guidance must be conditioned on "when replying in Chinese",
+    // otherwise it contradicts the English-reply rule. We assert the particle
+    // line co-occurs with a Chinese-only qualifier rather than standing as an
+    // unconditional instruction.
+    const particleLine = SAFETY_BOUNDARY_PROMPT.split("\n").find((line) =>
+      line.includes("吧") || line.includes("啊") || line.includes("嘛"),
+    );
+    expect(particleLine).toBeDefined();
+    expect(particleLine!).toMatch(/when replying in Chinese|Chinese repl|回中文/i);
+  });
+
+  it("places the language rule before the HUMAN FEEL block (priority order)", () => {
+    const languageIdx = SAFETY_BOUNDARY_PROMPT.indexOf("LANGUAGE");
+    const humanFeelIdx = SAFETY_BOUNDARY_PROMPT.indexOf("HUMAN FEEL");
+    expect(languageIdx).toBeGreaterThanOrEqual(0);
+    expect(humanFeelIdx).toBeGreaterThanOrEqual(0);
+    expect(languageIdx).toBeLessThan(humanFeelIdx);
   });
 });
 
