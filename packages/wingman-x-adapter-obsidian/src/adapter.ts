@@ -12,6 +12,7 @@ import {
   type ToneResult,
 } from "@wingman-x/kb-contract";
 
+import { bootstrapTone } from "./bootstrap.js";
 import type { ObsidianConfig } from "./config.js";
 
 const ADAPTER_NAME = "adapter-obsidian";
@@ -149,6 +150,10 @@ export function createAdapter(config: ObsidianConfig): KBAdapter {
     };
   }
 
+  async function bootstrapToneForAdapter(...args: Parameters<typeof bootstrapTone>) {
+    return bootstrapTone(...args);
+  }
+
   async function listLibrary(): Promise<LibraryEntry[]> {
     const records = await loadLibrary(paths);
     return records.map((record) => record.entry);
@@ -212,6 +217,7 @@ export function createAdapter(config: ObsidianConfig): KBAdapter {
     displayName: "Obsidian",
     healthCheck,
     getTone,
+    bootstrapTone: bootstrapToneForAdapter,
     listLibrary,
     getLibraryEntry,
     getHandles,

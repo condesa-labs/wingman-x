@@ -1,5 +1,5 @@
-import * as http from "node:http";
-import * as https from "node:https";
+import http from "node:http";
+import https from "node:https";
 import { ToneResultSchema } from "@wingman-x/kb-contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
