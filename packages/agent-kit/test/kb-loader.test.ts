@@ -347,15 +347,15 @@ describe("KB loader cache behavior", () => {
 
     await waitForAssertion(() => {
       expect(loader.status().lastError).toMatchObject({ code: "SOURCE_UNAVAILABLE" });
+      expect(logs).toContainEqual(
+        expect.objectContaining({
+          event: "kb_cache_refresh_failed",
+          code: "SOURCE_UNAVAILABLE",
+          adapter: "test-adapter",
+        }),
+      );
     });
     expect(loader.status().currentGeneration).toBe(currentGeneration);
-    expect(logs).toContainEqual(
-      expect.objectContaining({
-        event: "kb_cache_refresh_failed",
-        code: "SOURCE_UNAVAILABLE",
-        adapter: "test-adapter",
-      }),
-    );
     const healthPath = join(
       loader.status().cacheDir,
       "generations",

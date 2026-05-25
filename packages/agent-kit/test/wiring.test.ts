@@ -154,6 +154,7 @@ describe("wiring: watcher script against real daemon", () => {
         WATCHER_DRAFT_TIMEOUT_MS: "5000",
         WATCHER_SCRAPE_TIMEOUT_MS: "5000",
         WATCHER_FETCH_TIMEOUT_MS: "5000",
+        WATCHER_DAEMON_PORT: String(port),
         WATCHER_SCRAPE_COMMAND: process.execPath,
         WATCHER_SCRAPE_ARGS_JSON: JSON.stringify([fakeScraper]),
       },
