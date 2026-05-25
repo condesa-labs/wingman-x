@@ -93,6 +93,44 @@ describe("Obsidian vault reads", () => {
     }
   });
 
+  it("uses the derived id as the title when a library note has no heading", async () => {
+    const tempVault = mkdtempSync(join(tmpdir(), "wingman-x-obsidian-title-"));
+    try {
+      writeVaultFiles(tempVault, {
+        "No Heading.md": "Body without a markdown heading.\n",
+      });
+      const adapter = createAdapter(configSchema.parse({ vaultPath: tempVault }));
+
+      await expect(adapter.listLibrary()).resolves.toEqual([{ id: "no-heading", title: "no-heading" }]);
+    } finally {
+      rmSync(tempVault, { recursive: true, force: true });
+    }
+  });
+
+  it("reports source read failures through healthCheck without throwing", async () => {
+    const tempVault = mkdtempSync(join(tmpdir(), "wingman-x-obsidian-missing-"));
+    try {
+      const adapter = createAdapter(configSchema.parse({ vaultPath: join(tempVault, "missing") }));
+
+      await expect(adapter.healthCheck()).resolves.toMatchObject({
+        ok: false,
+        stats: {
+          libraryCount: 0,
+          handlesCount: 0,
+          toneBytes: 0,
+        },
+        warnings: [],
+        errors: [
+          expect.stringContaining("SOURCE_UNAVAILABLE: Unable to read tone source"),
+          expect.stringContaining("SOURCE_UNAVAILABLE: Unable to read library directory"),
+          expect.stringContaining("SOURCE_UNAVAILABLE: Unable to read handles source"),
+        ],
+      });
+    } finally {
+      rmSync(tempVault, { recursive: true, force: true });
+    }
+  });
+
   it("returns NOT_FOUND for unknown library ids", async () => {
     const adapter = createAdapter(configSchema.parse({ vaultPath: sampleVaultPath }));
 

@@ -13,7 +13,7 @@ describe("@wingman-x/adapter-obsidian conformance", () => {
     createAdapter,
     configSchema,
     fixtures: {
-      config: { vaultPath },
+      config: configSchema.parse({ vaultPath }),
     },
     suiteName: "sample Obsidian vault fixture",
   });
