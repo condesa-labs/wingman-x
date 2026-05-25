@@ -5,16 +5,23 @@ import {
   readdirSync,
   rmSync,
   utimesSync,
+  writeFileSync,
 } from "node:fs";
 import { mkdtempSync } from "node:fs";
+import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { KBAdapterError } from "@wingman-x/kb-contract";
 import {
   CACHE_SCHEMA_VERSION,
   createKBCache,
   type KBCachePayload,
 } from "../src/kb-cache.js";
+import {
+  resolveKBCachePaths,
+  resolveWingmanXStateDir,
+} from "../src/kb-paths.js";
 
 const tempDirs: string[] = [];
 
@@ -69,6 +76,19 @@ function currentFile(stateDir: string): string {
 }
 
 describe("KB generation cache", () => {
+  it("resolves WingmanX paths from env override or the home-dir default", () => {
+    expect(resolveWingmanXStateDir({ WINGMAN_X_STATE_DIR: "/tmp/wingman-x" })).toBe(
+      "/tmp/wingman-x",
+    );
+    expect(resolveWingmanXStateDir({ WINGMAN_X_STATE_DIR: "" })).toBe(
+      join(homedir(), ".wingman-x"),
+    );
+    expect(resolveKBCachePaths("adapter-fs", "/tmp/state")).toMatchObject({
+      currentPath: join("/tmp/state", "cache", "adapter-fs", "CURRENT"),
+      lockPath: join("/tmp/state", "cache", ".adapter-fs.refresh.lock"),
+    });
+  });
+
   it("keeps the old generation visible if refresh aborts before CURRENT rename", async () => {
     const stateDir = tempStateDir();
     let suffix = "old";
@@ -145,6 +165,7 @@ describe("KB generation cache", () => {
 
     const current = JSON.parse(readFileSync(currentFile(stateDir), "utf8"));
     current.cacheSchemaVersion = CACHE_SCHEMA_VERSION - 1;
+    writeFileSync(currentFile(stateDir), `${JSON.stringify(current, null, 2)}\n`, "utf8");
     mkdirSync(cache.paths.lockPath, { recursive: true });
     const staleTime = new Date(Date.now() - 61_000);
     utimesSync(cache.paths.lockPath, staleTime, staleTime);
@@ -158,5 +179,52 @@ describe("KB generation cache", () => {
     expect(generations).toEqual([rebuilt?.generation]);
     const rewrittenCurrent = JSON.parse(readFileSync(currentFile(stateDir), "utf8"));
     expect(rewrittenCurrent.cacheSchemaVersion).toBe(CACHE_SCHEMA_VERSION);
+  });
+
+  it("generates collision-safe ids, prunes old generations, and records health failures", async () => {
+    const stateDir = tempStateDir();
+    const emptyCache = createKBCache({
+      adapterName: "adapter-fs",
+      stateDir: tempStateDir(),
+    });
+    await emptyCache.writeHealthFailure(
+      new KBAdapterError("UNKNOWN", "adapter-fs", "no current yet"),
+    );
+
+    let now = new Date("2026-05-25T04:00:00.000Z");
+    const cache = createKBCache({
+      adapterName: "adapter-fs",
+      stateDir,
+      now: () => now,
+      randomSuffix: () => "same",
+    });
+
+    const first = await cache.refresh(async () => payload("first"));
+    const second = await cache.refresh(async () => payload("second"));
+    expect(second?.generation).not.toBe(first?.generation);
+    expect(second?.generation.endsWith("-same-1")).toBe(true);
+
+    now = new Date("2026-05-25T04:01:00.000Z");
+    const third = await cache.refresh(async () => payload("third"));
+    const generationsDir = join(stateDir, "cache", "adapter-fs", "generations");
+    expect(readdirSync(generationsDir).sort()).toEqual(
+      [second?.generation, third?.generation].sort(),
+    );
+
+    const healthPath = join(generationsDir, String(third?.generation), "health.json");
+    rmSync(healthPath, { force: true });
+    await cache.writeHealthFailure(
+      new KBAdapterError("PERMISSION_DENIED", "adapter-fs", "cannot read source"),
+    );
+    const health = JSON.parse(readFileSync(healthPath, "utf8"));
+    expect(health).toMatchObject({
+      ok: false,
+      stats: {
+        libraryCount: 0,
+        handlesCount: 0,
+        toneBytes: 0,
+      },
+    });
+    expect(health.errors.join("\n")).toContain("PERMISSION_DENIED");
   });
 });

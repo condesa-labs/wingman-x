@@ -156,6 +156,31 @@ function testConfig(adapterPackage = "test-adapter"): unknown {
 }
 
 describe("KB loader configuration", () => {
+  it("reports the default cache dir before refresh and lazily refreshes on first getter", async () => {
+    const stateDir = tempStateDir();
+    writeConfig(stateDir, testConfig());
+    const adapter = makeAdapter({
+      tone: { markdown: "lazy-tone", meta: {} },
+      library: [],
+      contents: {},
+      handles: { tiers: [] },
+    });
+    const loader = createKBLoader({
+      importModule: async () => adapterModule(adapter),
+    });
+
+    expect(loader.status()).toMatchObject({
+      cacheDir: join(stateDir, "cache", "adapter-fs"),
+      currentGeneration: null,
+      lastRefreshAt: null,
+    });
+    await expect(loader.getTone()).resolves.toMatchObject({ markdown: "lazy-tone" });
+    expect(loader.status()).toMatchObject({
+      cacheDir: join(stateDir, "cache", "test-adapter"),
+      lastError: null,
+    });
+  });
+
   it("uses the default filesystem config when config.json is missing and honors WINGMAN_X_STATE_DIR", async () => {
     const stateDir = tempStateDir();
     seedDefaultFsKB(stateDir);
@@ -233,6 +258,20 @@ describe("KB loader configuration", () => {
     await expect(loader.refresh()).rejects.toMatchObject({ code: "CONFIG_INVALID" });
     expect(loader.status().lastError?.message).toContain("createAdapter");
     expect(loader.status().lastError?.message).toContain("configSchema");
+  });
+
+  it("rejects createAdapter results that do not implement the adapter contract", async () => {
+    const stateDir = tempStateDir();
+    writeConfig(stateDir, testConfig("invalid-result-adapter"));
+
+    const loader = createKBLoader({
+      importModule: async () => ({
+        configSchema: z.record(z.string(), z.unknown()),
+        createAdapter: () => ({ schemaVersion: "1" }),
+      }),
+    });
+    await expect(loader.refresh()).rejects.toMatchObject({ code: "CONFIG_INVALID" });
+    expect(loader.status().lastError?.message).toContain("invalid adapter shape");
   });
 
   it("rejects adapter-side config schema failures with adapter and issue detail", async () => {
@@ -396,7 +435,7 @@ describe("KB loader cache behavior", () => {
 describe("agent-kit dependency placement", () => {
   it("declares runtime KB dependencies in dependencies and has proper-lockfile installed", () => {
     const packageJson = JSON.parse(
-      readFileSync(resolve("packages/agent-kit/package.json"), "utf8"),
+      readFileSync(resolve("package.json"), "utf8"),
     );
 
     for (const dependency of [
@@ -408,6 +447,6 @@ describe("agent-kit dependency placement", () => {
       expect(packageJson.devDependencies ?? {}).not.toHaveProperty(dependency);
     }
     expect(packageJson.dependencies.zod).toBeDefined();
-    expect(existsSync(resolve("node_modules/proper-lockfile/package.json"))).toBe(true);
+    expect(existsSync(resolve("../../node_modules/proper-lockfile/package.json"))).toBe(true);
   });
 });
