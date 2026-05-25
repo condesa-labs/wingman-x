@@ -34,7 +34,13 @@ describe("@wingman-x/kb-contract package scaffold", () => {
         },
       },
       files: ["dist", "src"],
+      dependencies: {
+        zod: "^4.3.6",
+      },
     });
+    expect(Object.keys((manifest as { dependencies?: Record<string, string> }).dependencies ?? {})).toEqual([
+      "zod",
+    ]);
   });
 
   it("has TypeScript and Vitest configuration matching the scaffold contract", () => {
