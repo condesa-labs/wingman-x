@@ -1,0 +1,11 @@
+# Legacy selected handles
+## Tier 1 founders and builders
+@sama
+karpathy
+
+## Tier 2 rotation candidates
+# keep this pool fresh
+@nearcyan
+
+## Tier 3 manual review
+manual_pick
