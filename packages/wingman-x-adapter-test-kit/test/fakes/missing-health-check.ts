@@ -29,5 +29,5 @@ export function createAdapter(_config: z.infer<typeof configSchema>): KBAdapter 
     },
   };
 
-  return adapter as KBAdapter;
+  return adapter as unknown as KBAdapter;
 }

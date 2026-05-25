@@ -3,6 +3,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import * as adapterTestKit from "../src/index.js";
 import { runConformanceTests } from "../src/index.js";
 import {
   assertAdapterConformance,
@@ -141,7 +142,8 @@ describe("@wingman-x/adapter-test-kit package scaffold", () => {
 
 describe("public barrel exports", () => {
   it("exports runConformanceTests as the only runtime symbol", () => {
-    expect({ runConformanceTests }).toEqual({ runConformanceTests: expect.any(Function) });
+    expect(Object.keys(adapterTestKit).sort()).toEqual(["runConformanceTests"]);
+    expect(adapterTestKit.runConformanceTests).toBe(runConformanceTests);
   });
 });
 
