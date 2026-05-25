@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -37,7 +37,7 @@ describe("@wingman-x/kb-contract package scaffold", () => {
     });
   });
 
-  it("has TypeScript and Vitest configuration matching the scaffold contract", async () => {
+  it("has TypeScript and Vitest configuration matching the scaffold contract", () => {
     const tsconfigPath = resolve(packageRoot, "tsconfig.json");
     const buildConfigPath = resolve(packageRoot, "tsconfig.build.json");
     const vitestConfigPath = resolve(packageRoot, "vitest.config.ts");
@@ -64,17 +64,13 @@ describe("@wingman-x/kb-contract package scaffold", () => {
     expect((buildConfig as { exclude?: string[] }).exclude).toContain("test/**/*.ts");
     expect((buildConfig as { exclude?: string[] }).exclude).toContain("**/*.test.ts");
 
-    const vitestConfig = (await import("../vitest.config.ts")).default;
-    expect(vitestConfig.test.coverage).toMatchObject({
-      provider: "v8",
-      thresholds: {
-        lines: 85,
-        statements: 85,
-        functions: 85,
-        branches: 85,
-      },
-    });
-    expect(vitestConfig.test.coverage.exclude).toContain("src/index.ts");
+    const vitestConfig = readFileSync(vitestConfigPath, "utf8");
+    expect(vitestConfig).toContain('provider: "v8"');
+    expect(vitestConfig).toContain('exclude: ["src/index.ts", "**/*.d.ts"]');
+    expect(vitestConfig).toContain("lines: 85");
+    expect(vitestConfig).toContain("statements: 85");
+    expect(vitestConfig).toContain("functions: 85");
+    expect(vitestConfig).toContain("branches: 85");
   });
 
   it("resolves the package entrypoint by its public import specifier", () => {
@@ -94,7 +90,10 @@ describe("@wingman-x/kb-contract package scaffold", () => {
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toMatch(
-      /packages\/wingman-x-kb-contract\/dist\/index\.js$/,
+      /(?:node_modules\/@wingman-x\/kb-contract|packages\/wingman-x-kb-contract)\/dist\/index\.js$/,
+    );
+    expect(realpathSync(resolve(repoRoot, "node_modules/@wingman-x/kb-contract"))).toBe(
+      packageRoot,
     );
   });
 });

@@ -1,0 +1,24 @@
+{
+  "name": "@wingman-x/kb-contract",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Public adapter contract package for WingmanX knowledge-base integrations.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --coverage",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}
