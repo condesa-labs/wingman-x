@@ -103,6 +103,23 @@ describe("handles markdown grammar", () => {
     ]);
   });
 
+  it("serializes multiple tiers with a blank line separator and tolerates missing log callback", () => {
+    const serialized = serializeHandles({
+      tiers: [
+        { tier: 1, label: "Core", handles: [{ handle: "alice", tags: [] }] },
+        { tier: 2, label: "Research", handles: [{ handle: "bob" }] },
+      ],
+    });
+
+    expect(serialized).toContain("- @alice\n\n## Tier 2: Research");
+    expect(parseHandles(serialized)).toEqual({
+      tiers: [
+        { tier: 1, label: "Core", handles: [{ handle: "alice" }] },
+        { tier: 2, label: "Research", handles: [{ handle: "bob" }] },
+      ],
+    });
+  });
+
   it("throws KBAdapterError CONFIG_INVALID with adapter and source line for malformed input", () => {
     expect(exported).toHaveProperty("KBAdapterError");
     const KBAdapterError = exported.KBAdapterError as new (
@@ -122,6 +139,20 @@ describe("handles markdown grammar", () => {
       expect((err as { code: string }).code).toBe("CONFIG_INVALID");
       expect((err as { adapter: string }).adapter).toBe("adapter-fs");
       expect((err as Error).message).toMatch(/line 1/);
+    }
+  });
+
+  it("rejects malformed policy, count, handle, and out-of-tier content with line numbers", () => {
+    const badInputs = [
+      ["not a title", /line 1/],
+      ["## Tier 1: Core\n*Policy: always*", /line 2/],
+      ["## Tier 1: Core\n*Count: many*", /line 2/],
+      ["## Tier 1: Core\n- alice", /line 2/],
+      ["## Tier 1: Core\nplain text", /line 2/],
+    ] as const;
+
+    for (const [input, linePattern] of badInputs) {
+      expect(() => parseHandles(input, "adapter-fs")).toThrow(linePattern);
     }
   });
 });
