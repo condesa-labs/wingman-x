@@ -8,6 +8,7 @@
     "packages/extension",
     "packages/agent-kit",
     "packages/wingman-x-kb-contract",
+    "packages/wingman-x-adapter-test-kit",
     "packages/sample-kb"
   ],
   "engines": {
