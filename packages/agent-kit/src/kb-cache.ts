@@ -108,6 +108,14 @@ function nowIso(now: () => Date): string {
   return now().toISOString();
 }
 
+function sanitizeGenerationPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, "-");
+}
+
+function generationTimestamp(now: () => Date): string {
+  return sanitizeGenerationPart(nowIso(now));
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await stat(path);
@@ -212,10 +220,12 @@ async function generateGenerationId(
   now: () => Date,
   randomSuffix?: () => string,
 ): Promise<string> {
-  const iso = nowIso(now);
+  const timestamp = generationTimestamp(now);
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const suffix = generateSuffix(randomSuffix);
-    const generation = attempt === 0 ? `${iso}-${suffix}` : `${iso}-${suffix}-${attempt}`;
+    const suffix = sanitizeGenerationPart(generateSuffix(randomSuffix));
+    const generation = attempt === 0
+      ? `${timestamp}-${suffix}`
+      : `${timestamp}-${suffix}-${attempt}`;
     if (!(await pathExists(join(paths.generationsDir, generation)))) {
       return generation;
     }
@@ -315,8 +325,10 @@ export function createKBCache(options: KBCacheOptions): KBCache {
     await mkdir(paths.adapterCacheDir, { recursive: true });
     await mkdir(paths.generationsDir, { recursive: true });
 
-    const needsRebuild = await hasOlderCacheSchema(paths);
-    const release = await acquireRefreshLock(paths, needsRebuild);
+    const currentBeforeLock = await readCurrent(paths);
+    const waitForLock = currentBeforeLock === null ||
+      currentBeforeLock.cacheSchemaVersion < CACHE_SCHEMA_VERSION;
+    const release = await acquireRefreshLock(paths, waitForLock);
     if (release === null) {
       return read();
     }

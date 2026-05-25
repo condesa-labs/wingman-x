@@ -280,6 +280,19 @@ function cloneArray<T>(items: T[]): T[] {
   return items.map((item) => ({ ...item }));
 }
 
+function cloneHandles(handles: HandleSet): HandleSet {
+  return {
+    tiers: handles.tiers.map((tier) => ({
+      ...tier,
+      handles: tier.handles.map((handle) => ({
+        ...handle,
+        ...(handle.tags !== undefined ? { tags: [...handle.tags] } : {}),
+      })),
+    })),
+    ...(handles.meta !== undefined ? { meta: { ...handles.meta } } : {}),
+  };
+}
+
 class KBLoaderImpl implements KBLoader {
   private snapshot: KBCacheSnapshot | null = null;
   private cache: KBCache | null = null;
@@ -308,7 +321,7 @@ class KBLoaderImpl implements KBLoader {
   }
 
   async getHandles(): Promise<HandleSet> {
-    return (await this.snapshotForRead()).handles;
+    return cloneHandles((await this.snapshotForRead()).handles);
   }
 
   async refresh(): Promise<void> {

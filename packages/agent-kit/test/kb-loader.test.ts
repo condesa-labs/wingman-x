@@ -430,6 +430,49 @@ describe("KB loader cache behavior", () => {
     expect((await loader.listLibrary()).map((entry) => entry.id)).toEqual(["keep"]);
     await expect(loader.getLibraryEntry("gone")).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("returns cloned handles so callers cannot mutate cached state", async () => {
+    const stateDir = tempStateDir();
+    writeConfig(stateDir, testConfig());
+    const adapter = makeAdapter({
+      tone: { markdown: "tone-ok", meta: {} },
+      library: [],
+      contents: {},
+      handles: {
+        tiers: [
+          {
+            tier: 1,
+            label: "Core",
+            policy: "every-run",
+            handles: [{ handle: "alpha_user", tags: ["core"], notes: "seed" }],
+          },
+        ],
+        meta: { sourceUser: "owner", notes: "original" },
+      },
+    });
+    const loader = createKBLoader({
+      importModule: async () => adapterModule(adapter),
+    });
+
+    await loader.refresh();
+    const first = await loader.getHandles();
+    first.tiers.push({ tier: 2, label: "Injected", handles: [] });
+    first.tiers[0]!.handles[0]!.handle = "mutated";
+    first.tiers[0]!.handles[0]!.tags?.push("mutated");
+    first.meta!.notes = "mutated";
+
+    expect(await loader.getHandles()).toEqual({
+      tiers: [
+        {
+          tier: 1,
+          label: "Core",
+          policy: "every-run",
+          handles: [{ handle: "alpha_user", tags: ["core"], notes: "seed" }],
+        },
+      ],
+      meta: { sourceUser: "owner", notes: "original" },
+    });
+  });
 });
 
 describe("agent-kit dependency placement", () => {

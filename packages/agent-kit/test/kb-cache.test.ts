@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { mkdtempSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +23,21 @@ import {
   resolveKBCachePaths,
   resolveWingmanXStateDir,
 } from "../src/kb-paths.js";
+
+const require = createRequire(import.meta.url);
+
+const properLockfile = require("proper-lockfile") as {
+  lock: (
+    path: string,
+    options: {
+      lockfilePath: string;
+      realpath: false;
+      stale: number;
+      retries: number;
+      onCompromised: (error: Error) => void;
+    },
+  ) => Promise<() => Promise<void>>;
+};
 
 const tempDirs: string[] = [];
 
@@ -181,6 +197,44 @@ describe("KB generation cache", () => {
     expect(rewrittenCurrent.cacheSchemaVersion).toBe(CACHE_SCHEMA_VERSION);
   });
 
+  it("waits for an initializing cache lock when no current snapshot exists", async () => {
+    const stateDir = tempStateDir();
+    const cache = createKBCache({
+      adapterName: "adapter-fs",
+      stateDir,
+      now: () => new Date("2026-05-25T03:30:00.000Z"),
+      randomSuffix: () => "after-lock",
+    });
+    mkdirSync(cache.paths.cacheParent, { recursive: true });
+    mkdirSync(cache.paths.adapterCacheDir, { recursive: true });
+    mkdirSync(cache.paths.generationsDir, { recursive: true });
+    const releaseHeldLock = await properLockfile.lock(cache.paths.lockPath, {
+      lockfilePath: cache.paths.lockPath,
+      realpath: false,
+      stale: 60_000,
+      retries: 0,
+      onCompromised: () => undefined,
+    });
+
+    let loadCalls = 0;
+    const refresh = cache.refresh(async () => {
+      loadCalls += 1;
+      return payload("after-lock");
+    });
+
+    try {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+      expect(loadCalls).toBe(0);
+      await releaseHeldLock();
+      const snapshot = await refresh;
+      expect(snapshot?.tone.markdown).toBe("# after-lock tone");
+      expect(loadCalls).toBe(1);
+    } catch (error) {
+      await releaseHeldLock().catch(() => undefined);
+      throw error;
+    }
+  });
+
   it("generates collision-safe ids, prunes old generations, and records health failures", async () => {
     const stateDir = tempStateDir();
     const emptyCache = createKBCache({
@@ -201,6 +255,9 @@ describe("KB generation cache", () => {
 
     const first = await cache.refresh(async () => payload("first"));
     const second = await cache.refresh(async () => payload("second"));
+    expect(first?.generation).not.toMatch(/[<>:"/\\|?*]/);
+    expect(first?.generation).toContain("2026-05-25T04-00-00.000Z");
+    expect(first?.writtenAt).toBe("2026-05-25T04:00:00.000Z");
     expect(second?.generation).not.toBe(first?.generation);
     expect(second?.generation.endsWith("-same-1")).toBe(true);
 
