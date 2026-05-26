@@ -34,3 +34,8 @@ export {
   type SignalsQuery,
   type SignalsListResponse,
 } from "./signal.js";
+export {
+  createKBLoader,
+  type KBLoader,
+  type KBLoaderOptions,
+} from "./kb-loader.js";

@@ -149,6 +149,21 @@ function parsePositiveNumberEnv(name: string, fallback: number): number {
   return fallback;
 }
 
+function parseDaemonPortOverride(): number | null {
+  const raw = process.env.WATCHER_DAEMON_PORT;
+  if (raw === undefined) return null;
+
+  const parsed = Number(raw.trim());
+  if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65_535) {
+    return parsed;
+  }
+
+  process.stderr.write(
+    `watcher warning: WATCHER_DAEMON_PORT=${JSON.stringify(raw)} is invalid; probing daemon ports\n`,
+  );
+  return null;
+}
+
 async function drainPendingDiscoverySignals(
   ctx: {
     config: WatcherConfig;
@@ -232,10 +247,11 @@ async function main(): Promise<void> {
 
   const kb = loadKb();
   const claudeBin = findClaudeBin();
+  const daemonPortOverride = parseDaemonPortOverride();
 
   // For dry-run we don't probe, so we use the canonical primary port for
   // the banner. CP06 manual verify explicitly states 53827.
-  const probedPort = isDryRun ? PORT_START : await probeDaemonPort();
+  const probedPort = daemonPortOverride ?? (isDryRun ? PORT_START : await probeDaemonPort());
   if (probedPort === null) {
     throw new Error(`daemon /health unreachable on ${PORT_START}..${PORT_END}`);
   }
@@ -330,18 +346,20 @@ async function main(): Promise<void> {
   let attempt = 0;
   while (true) {
     try {
-      const probed = await probeDaemonPort();
-      if (probed === null) {
-        throw new Error(`daemon /health unreachable on ${PORT_START}..${PORT_END}`);
-      }
-      if (probed !== config.daemonPort) {
-        config.daemonPort = probed;
-        log(
-          JSON.stringify({
-            event: "daemon_port_changed",
-            daemon_port: probed,
-          }),
-        );
+      if (daemonPortOverride === null) {
+        const probed = await probeDaemonPort();
+        if (probed === null) {
+          throw new Error(`daemon /health unreachable on ${PORT_START}..${PORT_END}`);
+        }
+        if (probed !== config.daemonPort) {
+          config.daemonPort = probed;
+          log(
+            JSON.stringify({
+              event: "daemon_port_changed",
+              daemon_port: probed,
+            }),
+          );
+        }
       }
       const res = await fetch(`http://localhost:${config.daemonPort}/events`);
       if (!res.ok || res.body === null) {

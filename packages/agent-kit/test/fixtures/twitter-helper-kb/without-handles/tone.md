@@ -1,0 +1,3 @@
+# Voice
+
+Short, practical replies.

@@ -1,0 +1,31 @@
+{
+  "name": "@wingman-x/adapter-fs",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Reference filesystem adapter for WingmanX knowledge-base integrations.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --coverage",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@wingman-x/kb-contract": "*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@wingman-x/adapter-test-kit": "*"
+  }
+}

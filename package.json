@@ -4,9 +4,13 @@
   "version": "0.2.0",
   "description": "Chrome extension + local companion daemon for agent-generated, voice-matched Twitter replies",
   "workspaces": [
+    "packages/wingman-x-kb-contract",
+    "packages/wingman-x-adapter-test-kit",
+    "packages/wingman-x-adapter-fs",
+    "packages/wingman-x-adapter-obsidian",
+    "packages/agent-kit",
     "packages/daemon",
     "packages/extension",
-    "packages/agent-kit",
     "packages/sample-kb"
   ],
   "engines": {
