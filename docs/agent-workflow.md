@@ -251,23 +251,25 @@ must surface the failure class to the user rather than silently retry.
 
 ### 2. Rate limit / throttling
 
-**Symptom.** Repeated scroll requests stop loading new tweets; Twitter's
-UI shows a "Rate limit exceeded" toast, or the tweet endpoint returns
-HTTP 429 in the network panel.
+**Symptom.** Profile scraping stops loading new tweets for configured handles;
+Twitter's UI shows a "Rate limit exceeded" toast, or the tweet endpoint returns
+HTTP 429 in the CDP-connected browser session.
 
 **Recovery.**
-- Respect the bounded scroll window in step 4 — do NOT scroll indefinitely.
-- On detection, the agent stops scraping, returns whatever candidates it
-  has gathered so far (may be zero), and waits **at least 15 minutes**
-  before the user re-invokes. The agent does not auto-retry within a run.
+- Respect the configured per-handle and total-handle bounds in the
+  `scrape-x-*.ts` scripts — do NOT expand the handle set indefinitely inside a
+  single run.
+- On detection, the agent stops scraping, returns whatever candidates it has
+  gathered so far (may be zero), and waits **at least 15 minutes** before the
+  user re-invokes. The agent does not auto-retry within a run.
 - Halve the per-run candidate quota on the next invocation after a
   rate-limit hit. This is purely client-side state — store a sentinel in
   `~/.twitter-helper/kb/.rate-limit-seen` (ISO-8601 timestamp) if needed.
 
 ### 3. DOM churn (Twitter changed its selectors)
 
-**Symptom.** The tweet-extraction `evaluate_script` returns an empty list
-even though the timeline clearly has tweets; or returns malformed tuples
+**Symptom.** The `scrape-x-*.ts` CDP scraper returns an empty list even though
+the opened profile pages clearly have tweets; or returns malformed tuples
 (e.g. missing `tweet_id`).
 
 **Recovery.**
@@ -275,7 +277,7 @@ even though the timeline clearly has tweets; or returns malformed tuples
   record which one matched on success for the run report.
 - If the extraction rate drops below 50% of the rendered tweets, halt with:
   `"Tweet extraction degraded (X/Y extracted) — Twitter likely changed its
-  selectors. Update the MCP script."`
+  selectors. Update the scrape-x CDP scraper."`
 - Do NOT POST partial or malformed candidates to the daemon — an empty
   POST is better than a corrupt one (the extension will just show "no
   candidates yet").

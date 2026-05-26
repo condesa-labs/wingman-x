@@ -19,7 +19,8 @@ Follow the instructions in [../../docs/agent-workflow.md](../../docs/agent-workf
   status: "pending" })`. The extension's "Request discovery" button
   writes these — their presence is a priority hint the user wants a
   fresh batch. Run discovery regardless (signals are hints, not gates).
-- Generate 3–10 candidate replies per invocation. Bounded scroll window.
+- Generate 3–10 candidate replies per invocation using bounded handle/profile
+  scraping from the configured every-run handles and rotation pool.
 - POST via the daemon-client exported from `@twitter-helper/agent-kit`
   (`createDaemonClient(port).postCandidates([...])`).
 - **After a successful POST**, ack every pending signal picked up above:
