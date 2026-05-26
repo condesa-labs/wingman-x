@@ -5,10 +5,9 @@
  * run watcher` per CP05 of the twitter-helper-watcher spec.
  *
  * Architecture (concise):
- *   1. KB load (once, on startup): read ~/.twitter-helper/kb/tone.md
- *      and ~/.twitter-helper/kb/library/*.md and concat them into the
- *      system-prompt body. The safety-boundary phrasing comes from
- *      `watcher-core.ts#SAFETY_BOUNDARY_PROMPT`.
+ *   1. KB load: first-boot migrate ~/.twitter-helper/kb to
+ *      ~/.wingman-x/kb, then use the WingmanX KB loader to build the
+ *      per-discovery system prompt.
  *   2. Probe daemon ports 53827..53836 for a daemon-shaped /health response.
  *   3. Print the startup banner, register SIGINT/SIGTERM cleanup handlers.
  *   4. If --dry-run was passed, run the dry-run banner and exit.
@@ -27,25 +26,29 @@
  */
 import "../../../scripts/load-env.mjs";
 import { spawnSync, type ChildProcess } from "node:child_process";
-import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buildSystemPromptFromLoader,
   RECONNECT_BACKOFF_MS,
-  SAFETY_BOUNDARY_PROMPT,
   type DispatchedSignal,
   dispatchSignal,
   runDiscovery,
   runDryRun,
+  shouldBootstrapMigrate,
   type WatcherConfig,
   type WatcherCounters,
 } from "../src/watcher-core.js";
+import { createKBLoader } from "../src/kb-loader.js";
+import { resolveWingmanXStateDir } from "../src/kb-paths.js";
+import { migrateTwitterHelperKB } from "../src/migrate-core.js";
 import { parseSseFrame } from "../src/sse-parser.js";
 import { SignalsListResponseSchema } from "../src/signal.js";
 import { parseJsonArrayEnv } from "../src/watcher-env.js";
 
-const KB_DIR = join(homedir(), ".twitter-helper", "kb");
+const LEGACY_KB_DIR = join(homedir(), ".twitter-helper", "kb");
 const PORT_START = 53827;
 const PORT_END = 53836;
 const DEFAULT_DRAFT_TIMEOUT_MS = 60_000;
@@ -53,45 +56,6 @@ const DEFAULT_SCRAPE_TIMEOUT_MS = 60_000;
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const SUMMARY_EVERY_N = 5;
 const DAEMON_IDENTITY_HEADER = "x-twitter-helper-daemon";
-
-interface KbLoadResult {
-  systemPrompt: string;
-  toneBytes: number;
-  libraryFiles: number;
-}
-
-function loadKb(): KbLoadResult {
-  let tone = "";
-  const tonePath = join(KB_DIR, "tone.md");
-  if (existsSync(tonePath)) {
-    tone = readFileSync(tonePath, "utf-8");
-  }
-
-  const libraryDir = join(KB_DIR, "library");
-  const libraryDocs: string[] = [];
-  let libraryCount = 0;
-  if (existsSync(libraryDir) && statSync(libraryDir).isDirectory()) {
-    for (const entry of readdirSync(libraryDir)) {
-      if (!entry.endsWith(".md")) continue;
-      libraryDocs.push(readFileSync(join(libraryDir, entry), "utf-8"));
-      libraryCount += 1;
-    }
-  }
-
-  const systemPrompt = [
-    "# Tone",
-    tone,
-    "# Library",
-    libraryDocs.join("\n\n---\n\n"),
-    SAFETY_BOUNDARY_PROMPT,
-  ].join("\n\n");
-
-  return {
-    systemPrompt,
-    toneBytes: Buffer.byteLength(tone, "utf-8"),
-    libraryFiles: libraryCount,
-  };
-}
 
 function findClaudeBin(): string {
   // Resolve via `which claude` so the dry-run banner shows the actual
@@ -245,7 +209,24 @@ async function drainPendingDiscoverySignals(
 async function main(): Promise<void> {
   const isDryRun = process.argv.includes("--dry-run");
 
-  const kb = loadKb();
+  const targetKbDir = join(resolveWingmanXStateDir(), "kb");
+  if (shouldBootstrapMigrate(existsSync(targetKbDir), existsSync(LEGACY_KB_DIR))) {
+    await migrateTwitterHelperKB({
+      sourceDir: LEGACY_KB_DIR,
+      targetDir: targetKbDir,
+      log: (line) => process.stdout.write(`${line}\n`),
+      warn: (line) => process.stderr.write(`${line}\n`),
+    });
+  }
+
+  const kbLoader = createKBLoader({
+    log: (event) => process.stdout.write(`${JSON.stringify(event)}\n`),
+  });
+  await kbLoader.refresh();
+  const [tone, library] = await Promise.all([
+    kbLoader.getTone(),
+    kbLoader.listLibrary(),
+  ]);
   const claudeBin = findClaudeBin();
   const daemonPortOverride = parseDaemonPortOverride();
 
@@ -275,7 +256,6 @@ async function main(): Promise<void> {
     draftTimeoutMs,
     scrapeTimeoutMs,
     fetchTimeoutMs,
-    kbSystemPrompt: kb.systemPrompt,
     // Use the local tsx binary to drive the scraper. Resolve relative to
     // the repo's node_modules so the watcher works regardless of CWD.
     scrapeCommand:
@@ -284,12 +264,14 @@ async function main(): Promise<void> {
     scrapeArgs:
       parseJsonArrayEnv("WATCHER_SCRAPE_ARGS_JSON") ?? [
         fileURLToPath(new URL("./scrape-x-handles.ts", import.meta.url)),
-      ],
+    ],
     claudeBin,
     summaryEveryN: SUMMARY_EVERY_N,
-    toneBytes: kb.toneBytes,
-    libraryFiles: kb.libraryFiles,
+    toneBytes: Buffer.byteLength(tone.markdown, "utf-8"),
+    libraryFiles: library.length,
   };
+  const loadSystemPrompt = (): Promise<string> =>
+    buildSystemPromptFromLoader(kbLoader);
 
   // Banner first so it's visible even if dry-run exits immediately.
   process.stdout.write(
@@ -396,6 +378,7 @@ async function main(): Promise<void> {
           await runDiscovery(signal, {
             config,
             counters,
+            loadSystemPrompt,
             log,
             trackChild,
           });

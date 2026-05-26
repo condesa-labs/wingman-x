@@ -102,9 +102,8 @@ function sampleWithoutReplacement(arr: string[], n: number): string[] {
   const result: string[] = [];
   for (let i = 0; i < Math.min(n, copy.length); i++) {
     const idx = Math.floor(Math.random() * copy.length);
-    result.push(copy[idx]);
-    copy[idx] = copy[copy.length - 1];
-    copy.pop();
+    const [picked] = copy.splice(idx, 1);
+    if (picked !== undefined) result.push(picked);
   }
   return result;
 }
@@ -180,8 +179,8 @@ async function scrapeHandle(
         const href = statusLink?.getAttribute("href") ?? "";
         const m = href.match(/^\/([^/]+)\/status\/(\d+)/);
         if (!m) continue;
-        const tweetAuthor = m[1];
-        const tweetId = m[2];
+        const tweetAuthor = m[1]!;
+        const tweetId = m[2]!;
         // On a profile page, we only want ORIGINAL tweets from that
         // handle — skip reposts and any article that surfaces a
         // different author.
@@ -224,6 +223,9 @@ async function scrapeHandle(
   const browser = await chromium.connectOverCDP(CDP_URL);
   try {
     const ctx = browser.contexts()[0];
+    if (ctx === undefined) {
+      throw new Error("no browser context available from CDP session");
+    }
     const page = await ctx.newPage();
 
     const all: RawTweet[] = [];

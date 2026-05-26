@@ -182,6 +182,13 @@ export async function buildSystemPromptFromLoader(
   ].join("\n");
 }
 
+export function shouldBootstrapMigrate(
+  targetExists: boolean,
+  sourceExists: boolean,
+): boolean {
+  return !targetExists && sourceExists;
+}
+
 /**
  * Tweet shape emitted by the scraper child (`scrape-x-handles.ts`).
  */
