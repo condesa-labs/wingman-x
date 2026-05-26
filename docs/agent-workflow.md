@@ -12,23 +12,20 @@ must produce; the client handles the wire protocol.
 
 ---
 
-## MCP Tool Requirements
+## Browser Requirements
 
-The agent must run inside an MCP host that provides a browser-automation MCP.
+The production scraper attaches to a real Chromium instance through the Chrome
+DevTools Protocol at `http://127.0.0.1:9223` by default. Start that browser with
+the repo helper before running discovery:
 
-- **Primary: `chrome-devtools` MCP** — required. The agent drives a real
-  Chromium instance to open Twitter / X, scroll the feed, extract tweet cards,
-  and read per-tweet text. The core tool calls used are:
-  - `navigate_page` to land on `https://x.com/home`
-  - `take_snapshot` / `evaluate_script` to pull tweet DOM nodes
-  - `scroll` / `press_key` to advance a bounded feed window
-- **Alternative: Playwright MCP** — equivalent feature set and acceptable if
-  the host offers it instead. Anywhere this document mentions
-  `chrome-devtools`, the Playwright MCP equivalent is a valid substitute.
+```bash
+npm run launch-chrome
+```
 
-The agent assumes the browser is **already logged in** to Twitter in the
-controlled profile. Logging in is a one-time user action outside the agent's
-scope.
+The scraper entrypoints live in `packages/agent-kit/scripts/scrape-x-*.ts`.
+They use Playwright's `chromium.connectOverCDP()` against `CDP_URL` (default
+`:9223`), then extract tweets from an already logged-in Twitter / X profile.
+Logging in is a one-time user action outside the scraper's scope.
 
 Network access is also needed so the agent's HTTP client (agent-kit) can reach
 `http://localhost:<daemon-port>`. The daemon binds in the 53827..53836 range;
@@ -40,7 +37,7 @@ order (or, if it knows the port from an earlier run, reads it from
 
 ## Step Sequence (discover → generate → POST)
 
-1. **Load the tone + KB** from `~/.twitter-helper/kb/` (see
+1. **Load the tone + KB** from `~/.wingman-x/kb/` (see
    [Tone + KB Loading Pattern](#tone--kb-loading-pattern) below). This
    defines the voice + topical hooks the agent uses while drafting replies.
 2. **Discover the daemon port.** Probe `GET http://localhost:<port>/health`
@@ -51,12 +48,14 @@ order (or, if it knows the port from an earlier run, reads it from
    Remember the returned IDs; you'll ack them after a successful POST
    in step 7. See [Pull-signal protocol](#pull-signal-protocol) below
    for the full rules.
-3. **Open the feed.** Use the browser MCP to `navigate_page` to
-   `https://x.com/home` and wait for the timeline to render.
-4. **Collect tweet candidates.** Run a bounded scroll window (e.g. 20 scroll
-   steps max, 30 tweets max) and extract a list of
-   `{tweet_id, tweet_url, author_handle, tweet_text}` tuples via
-   `evaluate_script` on the tweet article DOM. Deduplicate by `tweet_id`.
+3. **Attach to Chrome via CDP.** The production scraper uses `CDP_URL`
+   (default `http://127.0.0.1:9223`) and the `scrape-x-*.ts` scripts under
+   `packages/agent-kit/scripts/`.
+4. **Collect tweet candidates.** The scraper reads every-run handles from the
+   WingmanX KB `handles.md`, applies the rotation pool from
+   `~/.twitter-helper/handle-evaluation.json`, opens each profile, and emits
+   `{tweet_id, tweet_url, author_handle, tweet_text}` tuples. Deduplicate by
+   `tweet_id`.
 5. **Score + draft replies.** For each tweet, check whether it matches any
    KB topic / selected handle / explicit trending cue. For matches, draft a
    reply using the tone guide and the most relevant `library/*.md` excerpts.
@@ -192,11 +191,12 @@ existing `created_at` on a re-POST.
 
 ## Tone + KB Loading Pattern
 
-The knowledge base lives at `~/.twitter-helper/kb/`:
+The knowledge base lives at `~/.wingman-x/kb/`:
 
 ```text
-~/.twitter-helper/kb/
+~/.wingman-x/kb/
 ├── tone.md                   # free-form voice guide
+├── handles.md                # handle tiers; every-run tiers feed the scraper
 └── library/
     ├── <topic-a>.md          # topical examples / quotes / links
     ├── <topic-b>.md
@@ -209,16 +209,20 @@ The knowledge base lives at `~/.twitter-helper/kb/`:
   is the topic label; the body is free-form. The agent scans all files once
   per run, indexes by heading, and retrieves the 1–3 most relevant files for
   each candidate tweet.
+- **`handles.md`** stores handle tiers. Tiers with `policy: every-run` are
+  scraped every run by `scripts/scrape-x-handles.ts`; sampled/manual tiers are
+  available to rotation and future workflows.
 
-Loading happens via **direct filesystem reads** (no MCP needed): `readFile`
-or the host's native file tool. The agent reads every file on start — these
-are short (< 5 KB each typical) so there's no need for a vector DB.
+Loading happens through `createKBLoader()` from `@twitter-helper/agent-kit`.
+The default fs adapter reads `~/.wingman-x/kb/` and caches with
+stale-while-revalidate semantics; production callers do not read the old KB
+directory directly. On first boot, the watcher migrates a legacy
+`~/.twitter-helper/kb` source into the WingmanX location when the new target is
+absent.
 
-If `~/.twitter-helper/kb/` is missing or empty, the agent emits a clear
-user-facing message (`"KB directory missing — create ~/.twitter-helper/kb/
-with tone.md + library/*.md before running discovery"`) and exits with a
-non-zero status. The user bootstraps with the illustrative
-`packages/sample-kb/` content.
+If `~/.wingman-x/kb/` is missing or empty and no legacy migration source is
+available, the watcher exits non-zero with the loader error. The user bootstraps
+with the illustrative `packages/sample-kb/` content.
 
 Reference illustrative content:
 
