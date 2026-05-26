@@ -9,15 +9,18 @@ Follow the instructions in [../../docs/agent-workflow.md](../../docs/agent-workf
 
 ## Scope
 
-- Load `~/.twitter-helper/kb/tone.md` and `~/.twitter-helper/kb/library/**`.
-- Use the `chrome-devtools` MCP (Playwright MCP is an acceptable
-  alternative) to navigate an already-logged-in `x.com/home` session.
+- Load the WingmanX KB from `~/.wingman-x/kb/`: `tone.md`,
+  `library/*.md`, and `handles.md`.
+- Attach to an already-logged-in Chrome profile through CDP
+  (`CDP_URL`, default `http://127.0.0.1:9223`) and use the
+  `packages/agent-kit/scripts/scrape-x-*.ts` scraper path.
 - **On start, check for pending pull-signals**:
   `createDaemonClient(port).listSignals({ kind: "discovery_requested",
   status: "pending" })`. The extension's "Request discovery" button
   writes these — their presence is a priority hint the user wants a
   fresh batch. Run discovery regardless (signals are hints, not gates).
-- Generate 3–10 candidate replies per invocation. Bounded scroll window.
+- Generate 3–10 candidate replies per invocation using bounded handle/profile
+  scraping from the configured every-run handles and rotation pool.
 - POST via the daemon-client exported from `@twitter-helper/agent-kit`
   (`createDaemonClient(port).postCandidates([...])`).
 - **After a successful POST**, ack every pending signal picked up above:

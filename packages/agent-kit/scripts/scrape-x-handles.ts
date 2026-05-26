@@ -1,8 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * scrape-x-handles.ts — walk each handle in
- * ~/.twitter-helper/kb/selected-handles.txt, open their profile
- * page (https://x.com/<handle>), extract the latest N tweets
+ * scrape-x-handles.ts — load every-run handles from the WingmanX KB,
+ * open their profile page (https://x.com/<handle>), extract latest N tweets
  * (excluding pinned/reposts/replies on a best-effort basis), and
  * emit a single JSON array of RawTweet tuples to stdout.
  *
@@ -13,7 +12,6 @@
  *
  * Env:
  *   CDP_URL            — default http://127.0.0.1:9223
- *   HANDLES_FILE       — default ~/.twitter-helper/kb/selected-handles.txt
  *   EVALUATION_FILE    — default ~/.twitter-helper/handle-evaluation.json
  *   PER_HANDLE         — how many tweets per handle, default 3
  *   PER_HANDLE_MS      — per-handle time budget, default 8000
@@ -27,11 +25,10 @@ import { chromium, type Page } from "playwright";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { createKBLoader } from "../src/kb-loader.js";
+import { selectScrapeHandles } from "../src/scrape-handles.js";
 
 const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9223";
-const HANDLES_FILE =
-  process.env.HANDLES_FILE ??
-  resolve(homedir(), ".twitter-helper/kb/selected-handles.txt");
 const EVALUATION_FILE =
   process.env.EVALUATION_FILE ??
   resolve(homedir(), ".twitter-helper/handle-evaluation.json");
@@ -63,21 +60,6 @@ interface EvaluationFile {
   results: EvaluationResult[];
 }
 
-function parseTier1Handles(): string[] {
-  const text = readFileSync(HANDLES_FILE, "utf-8");
-  const handles: string[] = [];
-  let inTier1 = false;
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("## Tier 1")) { inTier1 = true; continue; }
-    if (trimmed.startsWith("## Tier 2")) break;
-    if (!inTier1) continue;
-    if (trimmed.startsWith("#") || trimmed.length === 0) continue;
-    handles.push(trimmed.startsWith("@") ? trimmed.slice(1) : trimmed);
-  }
-  return handles;
-}
-
 function loadRotationPool(): string[] {
   if (!existsSync(EVALUATION_FILE)) {
     log("no evaluation file found — rotation pool empty");
@@ -102,26 +84,28 @@ function sampleWithoutReplacement(arr: string[], n: number): string[] {
   const result: string[] = [];
   for (let i = 0; i < Math.min(n, copy.length); i++) {
     const idx = Math.floor(Math.random() * copy.length);
-    result.push(copy[idx]);
-    copy[idx] = copy[copy.length - 1];
-    copy.pop();
+    const [picked] = copy.splice(idx, 1);
+    if (picked !== undefined) result.push(picked);
   }
   return result;
 }
 
-function parseHandles(): string[] {
-  const tier1 = parseTier1Handles();
-  const tier1Set = new Set(tier1.map((h) => h.toLowerCase()));
+async function loadHandles(): Promise<string[]> {
+  const loader = createKBLoader({
+    log: (event) => log(JSON.stringify(event)),
+  });
+  const everyRun = selectScrapeHandles(await loader.getHandles());
+  const everyRunSet = new Set(everyRun.map((h) => h.toLowerCase()));
 
   const rotationPool = loadRotationPool().filter(
-    (h) => !tier1Set.has(h.toLowerCase()),
+    (h) => !everyRunSet.has(h.toLowerCase()),
   );
 
   const sampled = sampleWithoutReplacement(rotationPool, ROTATION_SAMPLE);
-  const combined = [...tier1, ...sampled];
+  const combined = [...everyRun, ...sampled];
 
   log(
-    `tier1=${tier1.length} rotation_sampled=${sampled.length} total=${combined.length}`,
+    `every_run=${everyRun.length} rotation_sampled=${sampled.length} total=${combined.length}`,
   );
   if (sampled.length > 0) {
     log(`rotation picks: ${sampled.map((h) => "@" + h).join(", ")}`);
@@ -180,8 +164,8 @@ async function scrapeHandle(
         const href = statusLink?.getAttribute("href") ?? "";
         const m = href.match(/^\/([^/]+)\/status\/(\d+)/);
         if (!m) continue;
-        const tweetAuthor = m[1];
-        const tweetId = m[2];
+        const tweetAuthor = m[1]!;
+        const tweetId = m[2]!;
         // On a profile page, we only want ORIGINAL tweets from that
         // handle — skip reposts and any article that surfaces a
         // different author.
@@ -217,13 +201,16 @@ async function scrapeHandle(
 }
 
 (async () => {
-  const handles = parseHandles();
+  const handles = await loadHandles();
   log(`attaching to ${CDP_URL}`);
   log(`${handles.length} handles, ${PER_HANDLE}/handle`);
 
   const browser = await chromium.connectOverCDP(CDP_URL);
   try {
     const ctx = browser.contexts()[0];
+    if (ctx === undefined) {
+      throw new Error("no browser context available from CDP session");
+    }
     const page = await ctx.newPage();
 
     const all: RawTweet[] = [];
