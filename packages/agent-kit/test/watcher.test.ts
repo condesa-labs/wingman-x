@@ -151,7 +151,6 @@ const baseConfig: WatcherConfig = {
   draftTimeoutMs: 5000,
   scrapeTimeoutMs: 5000,
   fetchTimeoutMs: 5000,
-  kbSystemPrompt: "You are a helpful assistant. Use the KB tone and library context.",
   scrapeCommand: "tsx",
   scrapeArgs: ["packages/agent-kit/scripts/scrape-x-handles.ts"],
   claudeBin: "claude",
@@ -236,13 +235,10 @@ function fakeKBLoader(overrides?: {
     getHandles: vi.fn(async () => ({ tiers: [] })),
     refresh: vi.fn(async () => {}),
     status: vi.fn(() => ({
-      healthy: true,
-      adapterPackage: "@wingman-x/adapter-fs",
-      adapterName: "adapter-fs",
+      cacheDir: "/tmp/kb-cache",
+      currentGeneration: "generation-1",
       lastRefreshAt: null,
       lastError: null,
-      cacheAgeMs: null,
-      stale: false,
     })),
   };
 }

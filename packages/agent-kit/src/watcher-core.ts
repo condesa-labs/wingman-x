@@ -20,6 +20,7 @@ import {
   type CandidateInput,
   type CandidateSource,
 } from "./candidate.js";
+import type { KBLoader } from "./kb-loader.js";
 import type { SignalKind } from "./signal.js";
 
 /**
@@ -90,8 +91,6 @@ export interface WatcherConfig {
   draftTimeoutMs: number;
   scrapeTimeoutMs: number;
   fetchTimeoutMs: number;
-  /** Composed system prompt: KB tone + library content + safety boundary. */
-  kbSystemPrompt: string;
   /** Scraper child command — typically the path to `tsx`. */
   scrapeCommand: string;
   /** Scraper args — typically `["packages/agent-kit/scripts/scrape-x-handles.ts"]`. */
@@ -109,6 +108,8 @@ export interface WatcherConfig {
 export interface RunContext {
   config: WatcherConfig;
   counters: WatcherCounters;
+  /** Loads the composed KB + safety prompt once for each discovery run. */
+  loadSystemPrompt?: () => Promise<string>;
   /** Structured-line log sink. Production emits JSON to stdout. */
   log: (line: string) => void;
   /**
@@ -158,6 +159,28 @@ export const SAFETY_BOUNDARY_PROMPT = [
   "- Pick ONE point from the KB to develop. Do NOT compress 3 ideas into one reply.",
   "- If the reply reads like it could appear in a research report, rewrite it with more oral texture.",
 ].join("\n");
+
+export async function buildSystemPromptFromLoader(
+  loader: KBLoader,
+): Promise<string> {
+  const [tone, library] = await Promise.all([
+    loader.getTone(),
+    loader.listLibrary(),
+  ]);
+  const libraryMarkdown = await Promise.all(
+    library.map(async (entry) => (await loader.getLibraryEntry(entry.id)).markdown),
+  );
+
+  return [
+    "# Tone",
+    tone.markdown,
+    "",
+    "# Library",
+    libraryMarkdown.join("\n\n---\n\n"),
+    "",
+    SAFETY_BOUNDARY_PROMPT,
+  ].join("\n");
+}
 
 /**
  * Tweet shape emitted by the scraper child (`scrape-x-handles.ts`).
@@ -310,9 +333,25 @@ export async function runDiscovery(
     );
   }
 
+  let systemPrompt: string;
+  try {
+    systemPrompt = ctx.loadSystemPrompt
+      ? await ctx.loadSystemPrompt()
+      : SAFETY_BOUNDARY_PROMPT;
+  } catch (err) {
+    ctx.log(
+      JSON.stringify({
+        event: "kb_load_failed",
+        message: (err as Error).message ?? String(err),
+      }),
+    );
+    await ackSignalSafe(signal.id, ctx);
+    return;
+  }
+
   for (const tweet of [...handleTweets, ...viralPoolTweets]) {
     ctx.counters.drafts_attempted += 1;
-    const candidate = await draftReply(tweet, ctx);
+    const candidate = await draftReply(tweet, systemPrompt, ctx);
     if (candidate !== null) {
       const ok = await postCandidate(candidate, ctx);
       if (ok) {
@@ -437,8 +476,15 @@ function stripSingleMarkdownFence(text: string): string {
  */
 export async function draftReply(
   tweet: ScrapedTweet,
-  ctx: { config: WatcherConfig; counters?: WatcherCounters; log: (l: string) => void; trackChild?: RunContext["trackChild"] },
+  systemPromptOrCtx:
+    | string
+    | { config: WatcherConfig; counters?: WatcherCounters; log: (l: string) => void; trackChild?: RunContext["trackChild"] },
+  maybeCtx?: { config: WatcherConfig; counters?: WatcherCounters; log: (l: string) => void; trackChild?: RunContext["trackChild"] },
 ): Promise<CandidateInput | null> {
+  const systemPrompt = typeof systemPromptOrCtx === "string"
+    ? systemPromptOrCtx
+    : SAFETY_BOUNDARY_PROMPT;
+  const ctx = typeof systemPromptOrCtx === "string" ? maybeCtx! : systemPromptOrCtx;
   const { config, log, counters } = ctx;
   const startedAt = Date.now();
 
@@ -447,7 +493,7 @@ export async function draftReply(
     "--output-format",
     "json",
     "--append-system-prompt",
-    `${config.kbSystemPrompt}\n\n${SAFETY_BOUNDARY_PROMPT}`,
+    systemPrompt,
   ];
 
   const child = spawn(config.claudeBin, args, {
