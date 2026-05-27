@@ -7,14 +7,20 @@
  *   3. Click ⇱ → Card mounts, Dock unmounts. Screenshot (`card-visible.png`).
  *   4. Assert Card displays `match_reason` and `suggested_reply` (full
  *      text) and renders the 5 action icons.
- *   5. Click ✍️ on the Card → composer filled (inherits CP06 behaviour).
- *   6. Drag the Card's header → assert storage updates. Screenshot
+ *   5. Drag the Card's header → assert storage updates. Screenshot
  *      (`card-after-drag.png`).
- *   7. Click ⇲ → Card unmounts, Dock reappears at Card's last position.
+ *   6. Click ⇲ → Card unmounts, Dock reappears at Card's last position.
  *      Screenshot (`dock-after-collapse.png`).
- *   8. Reload → Dock (not Card) is visible at the persisted position,
+ *   7. Reload → Dock (not Card) is visible at the persisted position,
  *      confirming the "Card not sticky" design choice documented in
  *      output-summary.md.
+ *   8. Re-expand, then click ✍️ → composer fills AND the whole widget
+ *      tears down (a `filled` candidate is terminal — handleAction("fill")
+ *      runs onDismiss → unmountCard + unmountDock; see actions.ts /
+ *      transitions.ts). Fill is deliberately LAST: it unmounts the Card,
+ *      so it cannot precede the drag/collapse/reload steps that need a
+ *      live Card. (This ordering bug was introduced when fill-is-terminal
+ *      landed in 811aef3 without updating this spec.)
  *   9. Zero console errors throughout.
  *
  * The E2E intentionally does not assert on mid-transition DOM state
@@ -53,7 +59,7 @@ test.afterAll(async () => {
   await env?.teardown();
 });
 
-test("Dock ⇱ → Card → ✍️ fill → drag → ⇲ collapse → reload returns Dock", async () => {
+test("Dock ⇱ → Card → drag → ⇲ collapse → reload returns Dock → ✍️ fill is terminal", async () => {
   const page = await env.ext.context.newPage();
   const consoleMessages: string[] = [];
   const consoleErrors: string[] = [];
@@ -139,17 +145,10 @@ test("Dock ⇱ → Card → ✍️ fill → drag → ⇲ collapse → reload ret
     fullPage: true,
   });
 
-  // --- Step 4: Click ✍️ on Card → composer filled + button enabled -------
-  const composer = page.locator('[data-testid="tweetTextarea_0"]');
-  const tweetBtn = page.locator('[data-testid="tweetButtonInline"]');
-  await expect(composer).toHaveText("");
-  await expect(tweetBtn).toBeDisabled();
-
-  await page.locator('[data-testid="twh-card-fill"]').click();
-  await expect(composer).toHaveText(SEED_REPLY, { timeout: 5_000 });
-  await expect(tweetBtn).toBeEnabled({ timeout: 5_000 });
-
   // --- Step 5: Drag the Card via its header ------------------------------
+  // Drag BEFORE fill: a successful fill is terminal and unmounts the Card
+  // (see Step 8), so the draggability check must run while the Card is
+  // still alive.
   const cardHandle = page.locator('[data-testid="twh-card-drag-handle"]');
   await expect(cardHandle).toBeVisible();
   const handleBox = await cardHandle.boundingBox();
@@ -243,7 +242,30 @@ test("Dock ⇱ → Card → ✍️ fill → drag → ⇲ collapse → reload ret
   expect(Math.abs(restored.x - dockBoxAfterCollapse.x)).toBeLessThanOrEqual(1);
   expect(Math.abs(restored.y - dockBoxAfterCollapse.y)).toBeLessThanOrEqual(1);
 
-  // --- Step 8: Evidence + zero console errors ---------------------------
+  // --- Step 8: Fill is terminal — re-expand, ✍️, widget tears down -------
+  // A successful fill unmounts the whole widget (handleAction("fill") →
+  // onDismiss → unmountCard + unmountDock — actions.ts / transitions.ts),
+  // so fill must be the final interaction. Re-expand the persisted Dock to
+  // get a Card, fill it, then assert the composer is populated AND no
+  // widget remains — neither Card nor Dock, the inverse of collapse.
+  await page.locator('[data-testid="twh-expand"]').click();
+  await expect(page.locator("#twh-card")).toBeVisible({ timeout: 2_000 });
+
+  const composer = page.locator('[data-testid="tweetTextarea_0"]');
+  const tweetBtn = page.locator('[data-testid="tweetButtonInline"]');
+  await expect(composer).toHaveText("");
+  await expect(tweetBtn).toBeDisabled();
+
+  await page.locator('[data-testid="twh-card-fill"]').click();
+  await expect(composer).toHaveText(SEED_REPLY, { timeout: 5_000 });
+  await expect(tweetBtn).toBeEnabled({ timeout: 5_000 });
+
+  // Terminal teardown: the composer keeps the filled text (it belongs to
+  // the page, not the widget), but the on-page widget is gone entirely.
+  await expect(page.locator("#twh-card")).toHaveCount(0, { timeout: 5_000 });
+  await expect(page.locator("#twh-dock")).toHaveCount(0, { timeout: 2_000 });
+
+  // --- Step 9: Evidence + zero console errors ---------------------------
   writeFileSync(
     resolve(EVIDENCE_DIR, "card-console.txt"),
     consoleMessages.join("\n") + "\n",
