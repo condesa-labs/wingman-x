@@ -16,7 +16,31 @@ test("viral bridge batches TH_VIRAL_OBSERVED messages into daemon POST", async (
   const state: { tweet_pool: Record<string, unknown> } = { tweet_pool: {} };
   const server = http.createServer((req, res) => {
     requests.push(`${req.method} ${req.url}`);
-    if (req.url === "/health") return json(res, { status: "ok", version: "test" });
+    // The content script POSTs cross-origin: the page is served from
+    // http://localhost:<port> but the daemon host is 127.0.0.1 (since the
+    // IPv6 fix in ed83342 pinned DAEMON_HOST to the numeric loopback). So
+    // the browser fires a CORS preflight and only reads responses that
+    // carry ACAO + the exposed daemon header. Mirror the real daemon's
+    // @fastify/cors config (packages/daemon/src/server.ts) so this mock
+    // exercises the same path production does — otherwise the preflight is
+    // rejected and the POST never leaves the browser.
+    const cors: http.OutgoingHttpHeaders = {
+      "access-control-allow-origin": req.headers.origin ?? "*",
+      "access-control-expose-headers": "x-twitter-helper-daemon",
+    };
+    if (req.method === "OPTIONS") {
+      res
+        .writeHead(204, {
+          ...cors,
+          "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+          "access-control-allow-headers": "content-type",
+        })
+        .end();
+      return;
+    }
+    if (req.url === "/health") {
+      return json(res, { status: "ok", version: "test" }, cors);
+    }
     if (/^\/alice\/status\/\d+/.test(req.url ?? "")) return html(res);
     if (req.url === "/tweets/observed" && req.method === "POST") {
       let raw = "";
@@ -24,17 +48,21 @@ test("viral bridge batches TH_VIRAL_OBSERVED messages into daemon POST", async (
       req.on("end", () => {
         observedAttempts += 1;
         if (observedAttempts === 1) {
-          res.writeHead(503, { "x-twitter-helper-daemon": "test" }).end();
+          res.writeHead(503, { "x-twitter-helper-daemon": "test", ...cors }).end();
           return;
         }
         const body = JSON.parse(raw) as { tweets: Array<{ tweet_id: string }> };
         for (const tweet of body.tweets) state.tweet_pool[tweet.tweet_id] = tweet;
         received.push({ url: req.url ?? "", headers: req.headers, body });
-        json(res, { stored: 3 });
+        json(res, { stored: 3 }, cors);
       });
       return;
     }
-    res.writeHead(204).end();
+    // Catch-all (e.g. the content script's cross-origin GET /suggestion):
+    // stamp CORS like the real daemon does on every response, else the
+    // browser blocks the read and logs a CORS error that trips the
+    // zero-console-errors assertion.
+    res.writeHead(204, cors).end();
   });
   await new Promise<void>((resolveListen) => server.listen(53827, "127.0.0.1", resolveListen));
   const ext = await launchWithExtension();
@@ -73,8 +101,16 @@ test("viral bridge batches TH_VIRAL_OBSERVED messages into daemon POST", async (
   }
 });
 
-function json(res: http.ServerResponse, body: unknown): void {
-  res.writeHead(200, { "x-twitter-helper-daemon": "test", "content-type": "application/json" });
+function json(
+  res: http.ServerResponse,
+  body: unknown,
+  extraHeaders: http.OutgoingHttpHeaders = {},
+): void {
+  res.writeHead(200, {
+    "x-twitter-helper-daemon": "test",
+    "content-type": "application/json",
+    ...extraHeaders,
+  });
   res.end(JSON.stringify(body));
 }
 
