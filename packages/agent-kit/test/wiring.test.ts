@@ -110,7 +110,7 @@ describe("wiring: watcher script against real daemon", () => {
 
     daemon = spawn(TSX_BIN, [DAEMON_ENTRY], {
       cwd: resolve("."),
-      env: { ...process.env, WINMAN_X_STATE_DIR: stateDir },
+      env: { ...process.env, WINGMAN_X_STATE_DIR: stateDir },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const port = await waitForListenLine(daemon);
@@ -150,7 +150,7 @@ describe("wiring: watcher script against real daemon", () => {
         ...process.env,
         HOME: homeDir,
         PATH: `${binDir}:${process.env.PATH ?? ""}`,
-        WINMAN_X_STATE_DIR: stateDir,
+        WINGMAN_X_STATE_DIR: stateDir,
         WATCHER_DRAFT_TIMEOUT_MS: "5000",
         WATCHER_SCRAPE_TIMEOUT_MS: "5000",
         WATCHER_FETCH_TIMEOUT_MS: "5000",

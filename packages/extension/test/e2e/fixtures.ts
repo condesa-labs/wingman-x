@@ -44,7 +44,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
   const stateDir = mkdtempSync(join(tmpdir(), "th-e2e-"));
   const env = {
     ...process.env,
-    WINMAN_X_STATE_DIR: stateDir,
+    WINGMAN_X_STATE_DIR: stateDir,
   } satisfies NodeJS.ProcessEnv;
 
   const child = childProcess.spawn("npm", ["run", "dev", "--silent"], {

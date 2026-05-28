@@ -24,7 +24,7 @@ import {
  *     `[daemon] listening on port <N>` printed via `console.info()` by
  *     `packages/daemon/src/port.ts`. CP02 enforces this is stable.
  *   - Each test gets an isolated state directory via
- *     `WINMAN_X_STATE_DIR`, so this test never touches
+ *     `WINGMAN_X_STATE_DIR`, so this test never touches
  *     `~/.twitter-helper/state.json`.
  *   - The daemon's port range is 53827..53836 — "random port" in the
  *     spec maps to "whatever port in that range is free", which is what
@@ -95,7 +95,7 @@ describe("integration: agent-kit against real daemon", () => {
     child = spawn(TSX_BIN, [DAEMON_ENTRY], {
       env: {
         ...process.env,
-        WINMAN_X_STATE_DIR: tmpDir,
+        WINGMAN_X_STATE_DIR: tmpDir,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

@@ -85,7 +85,7 @@ describe("daemon binary (integration)", () => {
       child = spawn("npx", ["tsx", BIN], {
         env: {
           ...process.env,
-          WINMAN_X_STATE_DIR: tmp.dir,
+          WINGMAN_X_STATE_DIR: tmp.dir,
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
