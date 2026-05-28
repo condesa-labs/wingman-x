@@ -6,26 +6,119 @@ human-reviewed reply filled into Twitter's native composer.
 > WinMan-X is deliberately split into three local components:
 > a **daemon** (Node service), a **Chrome extension**, and an **agent kit**
 > any MCP-capable LLM host (Claude Code / Codex / Gemini CLI / …) can drive.
-> Nothing talks to the cloud — the knowledge base is a local directory.
+> Nothing talks to the cloud — the knowledge base is a local directory
+> (or any other source you wire up through the adapter contract).
+
+---
+
+## How the pieces fit together
+
+Before installing anything, it helps to see what each step is wiring up.
+The whole system runs on your own machine; there is no WinMan-X server:
+
+```
+                           +------------------------+
+                           |  Knowledge base (KB)   |
+                           |  -- your voice + topics |
+                           |  default: ~/.wingman-x/kb |
+                           |  (an Obsidian vault, a  |
+                           |   Notion mirror, a feishu|
+                           |   export — anything an   |
+                           |   adapter can read)      |
+                           +-----------+------------+
+                                       |
+                                       | KBAdapter contract
+                                       v
++----------------+   HTTP (53827)   +--------+   MCP / tool calls
+|  Extension     | <--------------> | daemon | <-------------------+
+|  (Chrome MV3,  |                  | (Node) |                     |
+|   content +    |                  +--------+                     |
+|   popup +      |                       ^                         |
+|   service-     |                       | HTTP (agent-kit client) |
+|   worker)      |                       |                         |
++-------+--------+                       |                         |
+        |                          +-----+-------------+           |
+        v                          |    Your agent     | <---------+
+   twitter.com / x.com             |  (Claude Code,    |
+   composer fill                   |   Codex CLI,      |
+                                   |   Gemini CLI, …)  |
+                                   +-------------------+
+```
+
+- **Daemon** — persistent local Node service; the *only* component
+  that stores state (candidates, dismissed IDs, config). Listens on
+  ports `53827..53836`.
+- **Extension** — Chrome MV3 extension. The popup shows candidates;
+  the content script docks a widget onto each tweet page and fills
+  drafts into Twitter's native composer.
+- **Agent** — any MCP-capable LLM host. Reads your knowledge base,
+  drafts voice-matched replies, POSTs them to the daemon. Plug in
+  Claude Code, Codex CLI, Gemini CLI, or any host that can call
+  `@winman-x/agent-kit`.
+- **Knowledge base** — *not* a fixed directory. It is whatever an
+  adapter exposes. The shipped default reads markdown from a local
+  folder, so an Obsidian vault works out-of-the-box. Notion / Feishu
+  / Confluence / your own CMS can plug in by implementing the
+  `KBAdapter` contract — see [§3 below](#3-point-your-agent-at-the-knowledge-base).
+
+The install steps below bring up each of these in order: daemon, then
+extension, then KB, then agent.
 
 ---
 
 ## Prerequisites
 
-- **Node.js ≥ 20** (see `engines` in the root `package.json`).
-- **npm ≥ 10** — the repo uses npm workspaces.
-- **Chrome or a Chromium-based browser** (Brave / Edge / Chromium are fine).
-  Manifest V3 is required; anything from late 2023 onwards qualifies.
-- **An MCP-capable LLM agent host** with a browser-automation MCP:
-  - Claude Code **or** OpenAI Codex CLI **or** Gemini CLI (any MCP host).
-  - `chrome-devtools` MCP (primary) or Playwright MCP (equivalent fallback).
-- **A Twitter / X account** logged in inside the Chrome profile you'll use
-  for the extension. Logging in is a one-time manual action outside the
-  agent's scope.
+WinMan-X is currently documented for **macOS**. You need four things
+on the machine before cloning the repo. Install with [Homebrew](https://brew.sh):
+
+### Required toolchain
+
+```bash
+brew install node@20                       # Node.js ≥ 20 (also brings npm ≥ 10)
+xcode-select --install                     # git (and other Xcode CLT)
+brew install --cask google-chrome          # or `chromium` / `brave-browser` — any MV3-capable Chromium
+```
+
+> `node@20` is keg-only; if `node --version` does not pick it up,
+> follow the post-install hint Homebrew prints (`brew link node@20`
+> or add it to your `PATH`). If you prefer a version manager, use
+> [nvm](https://github.com/nvm-sh/nvm) (`nvm install 20 && nvm use 20`).
+
+Sanity-check the versions:
+
+```bash
+node --version    # v20.x.x or newer
+npm --version     # 10.x.x or newer
+git --version
+```
+
+### MCP agent host (pick one)
+
+The agent side is intentionally pluggable. Install **one** of:
+
+- **[Claude Code](https://claude.com/claude-code)** *(reference host; the repo ships a slash-command for this)*
+- **[OpenAI Codex CLI](https://github.com/openai/codex)**
+- **[Gemini CLI](https://github.com/google-gemini/gemini-cli)**
+- … or anything else that speaks MCP.
+
+Each host needs a **browser-automation MCP** registered:
+`chrome-devtools` MCP is the primary; Playwright MCP is an equivalent
+fallback. Follow your host's docs to add the MCP — WinMan-X does not
+care which one, only that *some* MCP can drive a Chrome window.
+
+### Twitter / X account
+
+A working Twitter / X account, **already logged in** inside the Chrome
+profile you will hand the extension. Logging in is a one-time manual
+action that sits outside the agent's scope — the agent never types
+passwords.
 
 ---
 
-## Install
+## Install the workspace
+
+Once the prerequisites above are in place, the actual install is one
+command:
 
 ```bash
 git clone <your-fork-of-this-repo> winman-x
@@ -34,7 +127,8 @@ npm install
 ```
 
 `npm install` bootstraps every workspace (`daemon`, `extension`,
-`agent-kit`, `sample-kb`) in one pass.
+`agent-kit`, `sample-kb`, `adapter-fs`, `adapter-obsidian`,
+`kb-contract`) in one pass.
 
 ---
 
@@ -58,9 +152,12 @@ the range `53827..53836` (useful when multiple dev instances overlap).
 The extension's background service worker discovers whichever port is
 live by probing the same range.
 
-State (candidates, dismissed IDs, config) lives under
-`~/.winman-x/` by default. Override with the `WINMAN_X_STATE_DIR`
-environment variable if you'd rather use a scratch directory.
+State (candidates, dismissed IDs, daemon config) lives under
+`~/.wingman-x/` by default — the same directory the knowledge-base
+layer uses, so daemon state and KB cache sit side-by-side. Override
+the location with the `WINGMAN_X_STATE_DIR` environment variable if
+you'd rather use a scratch directory; the value is shared with the
+KB layer, so a single env controls both.
 
 Leave this process running in its own terminal.
 
@@ -92,23 +189,137 @@ hit the ↻ icon on the extension card after every `npm run build`.
 
 ## 3. Point your agent at the knowledge base
 
-The agent reads one local directory to learn your voice and reply
-heuristics:
+The knowledge base (KB) is *the* thing that makes the drafts sound like
+**you** and not like a generic assistant. The agent reads it on every
+discovery loop to learn:
+
+- **Your voice** — a `tone.md` file with examples, phrases to avoid,
+  go-to analogies, and length targets.
+- **Your topics** — a `library/` of opinionated notes the agent uses
+  to decide *what* to reply about and *what stance* to take.
+- **Your handles** — an optional `handles.md` listing accounts the
+  agent should preferentially watch.
+
+### KB is pluggable — pick a source
+
+WinMan-X does **not** lock you into one format. The agent talks to KB
+through a small adapter contract (`KBAdapter`, defined in
+[`packages/wingman-x-kb-contract`](../packages/wingman-x-kb-contract)).
+The repo ships two reference adapters; community adapters are welcome:
+
+| Adapter | Reads from | Status |
+|--|--|--|
+| `@winman-x/adapter-fs` | A local directory of markdown files (`tone.md`, `library/*.md`, optional `handles.md`) | **Shipped** (default fallback) |
+| `@winman-x/adapter-obsidian` | An Obsidian vault, with configurable file/folder names and optional wiki-link following | **Shipped** |
+| `@winman-x/adapter-notion` | A Notion database / page tree | **Wanted — open for PRs** |
+| `@winman-x/adapter-feishu` | A Feishu (Lark) wiki space or document | **Wanted — open for PRs** |
+
+Pick the option that matches where your voice notes already live:
+
+### Option A — quickest start (FS adapter, sample content)
+
+For your first run, copy the sample KB so you have something to edit:
 
 ```bash
-mkdir -p ~/.winman-x/kb
-cp -R packages/sample-kb/* ~/.winman-x/kb/
+mkdir -p ~/.wingman-x/kb
+cp -R packages/sample-kb/* ~/.wingman-x/kb/
 ```
 
-Then tailor `~/.winman-x/kb/tone.md` to match how you actually
-reply (examples, phrases to avoid, go-to analogies, length targets,
-etc.). The richer this file, the less generic the drafts will be.
+This uses every default: FS adapter, `rootPath` = `~/.wingman-x/kb`,
+no `~/.wingman-x/config.json` needed. Tailor `~/.wingman-x/kb/tone.md`
+to match how you actually reply. The richer this file, the less
+generic the drafts will be.
 
-`packages/sample-kb/library/*.md` shows the kind of topical notes the
-agent will surface when deciding *what* to reply about.
+### Option B — wire up your Obsidian vault (Obsidian adapter)
 
-The agent discovers the KB directory via the daemon's `GET /config`
-endpoint (`kb_dir` field). No hard-coded paths.
+If you already keep voice notes / library entries inside an Obsidian
+vault, use the bundled Obsidian adapter so you get vault-aware
+behaviour (custom file/folder names, optional wiki-link following):
+
+```bash
+mkdir -p ~/.wingman-x
+cat > ~/.wingman-x/config.json <<'JSON'
+{
+  "version": 1,
+  "adapter": {
+    "package": "@winman-x/adapter-obsidian",
+    "name": "adapter-obsidian",
+    "config": {
+      "vaultPath": "/Users/you/Obsidian/MyVault",
+      "wingmanRoot": "WingmanX",
+      "toneFile": "VOICE.md",
+      "libraryFolder": "library",
+      "handlesFile": "handles.md",
+      "followObsidianLinks": false
+    }
+  },
+  "cache": {
+    "ttlSeconds": 900,
+    "strategy": "stale-while-revalidate"
+  }
+}
+JSON
+```
+
+Inside `<vaultPath>/<wingmanRoot>/` (e.g.
+`/Users/you/Obsidian/MyVault/WingmanX/`), create:
+
+- `VOICE.md` — your tone guide (the file name comes from `toneFile`).
+- `library/` — one markdown file per topical stance you want the
+  agent to draw on.
+- `handles.md` — optional, the agent's preferred handles list.
+
+`wingmanRoot`, `toneFile`, `libraryFolder`, and `handlesFile` all
+have sensible defaults; you can omit them from the config if you
+follow the convention above. Set `followObsidianLinks: true` if you
+want the adapter to walk `[[wikilinks]]` while reading; default is
+`false` to keep the read scope predictable.
+
+> **Don't want vault-aware behaviour?** You can also point the FS
+> adapter (Option A) at any subfolder of your vault by setting
+> `"adapter.package": "@winman-x/adapter-fs"` and
+> `"config.rootPath": "/path/to/vault/subfolder"`. That treats the
+> folder as plain markdown — wiki-links and properties are ignored
+> but won't break anything.
+
+### Option C — bring your own adapter (Notion / Feishu / Confluence / …)
+
+The contract is small. Any package that exports:
+
+```ts
+export const configSchema: ZodType<YourConfig>;
+export function createAdapter(cfg: YourConfig): KBAdapter;
+```
+
+…where `KBAdapter` implements `getTone()`, `listLibrary()`,
+`getLibraryEntry(id)`, `getHandles()`, and `healthCheck()` (see
+[`packages/wingman-x-kb-contract/src/index.ts`](../packages/wingman-x-kb-contract/src/index.ts))
+can be slotted in by changing the `adapter.package` field in
+`~/.wingman-x/config.json`. The loader resolves the package via
+standard Node `import()`, so an adapter can live in this monorepo
+*or* on npm *or* via `npm link`.
+
+`packages/wingman-x-adapter-fs/` is the smallest end-to-end reference
+implementation — start by reading it, then fork the layout for your
+source of truth. PRs adding adapters to the table above are very
+welcome.
+
+### How the daemon and agent discover the KB
+
+There is no hard-coded path baked into the daemon or the extension.
+The chain is:
+
+1. `~/.wingman-x/config.json` (optional) declares which adapter
+   package to load and what config to hand it.
+2. The agent-side `createKBLoader()` reads that file, imports the
+   adapter package, validates the inner config with the adapter's
+   own `configSchema`, and starts serving cached reads from
+   `~/.wingman-x/cache/<adapter-name>/`.
+3. The agent uses the loader (via `@winman-x/agent-kit`) to fetch
+   tone / library / handles whenever it drafts a reply.
+
+If the config file does not exist, the loader falls back to the FS
+adapter at `~/.wingman-x/kb/` — which is what Option A relies on.
 
 ---
 

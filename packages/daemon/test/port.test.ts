@@ -203,9 +203,9 @@ describe("port auto-bump", () => {
     // Now force saveState to fail by replacing the state path with a
     // directory — mkdirSync inside saveState will then fail because
     // the path already exists as a file that needs to be renamed in.
-    // Simpler: just unset WINMAN_X_STATE_DIR to a path that
+    // Simpler: just unset WINGMAN_X_STATE_DIR to a path that
     // mkdirSync would refuse. Use /dev/null/forbidden.
-    process.env.WINMAN_X_STATE_DIR = "/dev/null/forbidden";
+    process.env.WINGMAN_X_STATE_DIR = "/dev/null/forbidden";
 
     app = await buildServer();
     const chosen = await chooseAndBindPort(app, { range: [...TEST_RANGE] });

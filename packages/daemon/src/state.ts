@@ -13,17 +13,21 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { StateFileSchema, type Candidate, type StateFile } from "./schemas.js";
 
-export const DEFAULT_STATE_SUBDIR = ".winman-x";
+export const DEFAULT_STATE_SUBDIR = ".wingman-x";
 export const STATE_FILE_NAME = "state.json";
 
 /**
  * Resolve the state directory.
- * - If `WINMAN_X_STATE_DIR` is set, use that verbatim (used by
- *   tests to avoid clobbering `~/.winman-x/state.json`).
- * - Otherwise, default to `~/.winman-x`.
+ * - If `WINGMAN_X_STATE_DIR` is set, use that verbatim (used by
+ *   tests to avoid clobbering `~/.wingman-x/state.json`).
+ * - Otherwise, default to `~/.wingman-x`.
+ *
+ * This env var is shared with the KB layer (`@winman-x/adapter-fs`
+ * and `@winman-x/agent-kit`) so a single value controls where the
+ * daemon's `state.json` and the KB cache live.
  */
 export function resolveStateDir(): string {
-  const override = process.env.WINMAN_X_STATE_DIR;
+  const override = process.env.WINGMAN_X_STATE_DIR;
   if (override && override.length > 0) {
     return override;
   }
