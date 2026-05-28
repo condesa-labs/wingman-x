@@ -1,9 +1,9 @@
-# Getting Started — Twitter Helper
+# Getting Started — WinMan-X
 
-End-to-end walkthrough: from a fresh clone to your first agent-drafted,
+End-to-end walkthrough: from a fresh clone to your first AI-drafted,
 human-reviewed reply filled into Twitter's native composer.
 
-> Twitter Helper is deliberately split into three local components:
+> WinMan-X is deliberately split into three local components:
 > a **daemon** (Node service), a **Chrome extension**, and an **agent kit**
 > any MCP-capable LLM host (Claude Code / Codex / Gemini CLI / …) can drive.
 > Nothing talks to the cloud — the knowledge base is a local directory.
@@ -28,8 +28,8 @@ human-reviewed reply filled into Twitter's native composer.
 ## Install
 
 ```bash
-git clone <your-fork-of-this-repo> chrome-twitter-helper
-cd chrome-twitter-helper
+git clone <your-fork-of-this-repo> winman-x
+cd winman-x
 npm install
 ```
 
@@ -44,7 +44,7 @@ The daemon is the only component that persists state; the extension and
 the agent both talk to it over HTTP on localhost.
 
 ```bash
-npm --workspace @twitter-helper/daemon run dev
+npm --workspace @winman-x/daemon run dev
 ```
 
 You should see a line like:
@@ -59,7 +59,7 @@ The extension's background service worker discovers whichever port is
 live by probing the same range.
 
 State (candidates, dismissed IDs, config) lives under
-`~/.twitter-helper/` by default. Override with the `TWITTER_HELPER_STATE_DIR`
+`~/.winman-x/` by default. Override with the `WINMAN_X_STATE_DIR`
 environment variable if you'd rather use a scratch directory.
 
 Leave this process running in its own terminal.
@@ -70,7 +70,7 @@ Leave this process running in its own terminal.
 
 ```bash
 # In a second terminal
-npm --workspace @twitter-helper/extension run build
+npm --workspace @winman-x/extension run build
 ```
 
 That compiles `packages/extension/src/**` into `packages/extension/dist/`.
@@ -81,7 +81,7 @@ Then, in Chrome:
 2. Toggle **Developer mode** on (top-right).
 3. Click **Load unpacked** and pick
    `packages/extension/dist/` from this repo.
-4. You should see **Twitter Helper** in the list with a Service Worker
+4. You should see **WinMan-X** in the list with a Service Worker
    status of "active". No icon badge appears until the daemon replies
    with at least one candidate.
 
@@ -96,11 +96,11 @@ The agent reads one local directory to learn your voice and reply
 heuristics:
 
 ```bash
-mkdir -p ~/.twitter-helper/kb
-cp -R packages/sample-kb/* ~/.twitter-helper/kb/
+mkdir -p ~/.winman-x/kb
+cp -R packages/sample-kb/* ~/.winman-x/kb/
 ```
 
-Then tailor `~/.twitter-helper/kb/tone.md` to match how you actually
+Then tailor `~/.winman-x/kb/tone.md` to match how you actually
 reply (examples, phrases to avoid, go-to analogies, length targets,
 etc.). The richer this file, the less generic the drafts will be.
 
@@ -131,7 +131,7 @@ The ready-made skill is at
 
 Follow [`docs/agent-workflow.md`](./agent-workflow.md) step-by-step.
 The workflow doc is intentionally agent-agnostic — every hosts talks
-to the daemon through the same `@twitter-helper/agent-kit` TypeScript
+to the daemon through the same `@winman-x/agent-kit` TypeScript
 client, so the prompt structure and tool calls are identical.
 
 When discovery completes, the agent will have POSTed one or more
@@ -144,7 +144,7 @@ state directory.
 
 ## 5. Complete one reply cycle
 
-1. **Click the Twitter Helper extension icon** (or the pinned
+1. **Click the WinMan-X extension icon** (or the pinned
    browser-action). The popup lists every candidate the daemon
    currently holds, with a category pill (🟩 selected, 🟥 dismissed).
 2. **Click a candidate card** — the popup opens the tweet in a new

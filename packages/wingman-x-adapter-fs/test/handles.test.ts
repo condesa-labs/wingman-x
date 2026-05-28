@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { KBAdapterError, parseHandles } from "@wingman-x/kb-contract";
+import { KBAdapterError, parseHandles } from "@winman-x/kb-contract";
 import { describe, expect, it } from "vitest";
 
 import { createAdapter } from "../src/index.js";

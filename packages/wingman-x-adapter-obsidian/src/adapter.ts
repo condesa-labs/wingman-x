@@ -10,7 +10,7 @@ import {
   type LibraryContent,
   type LibraryEntry,
   type ToneResult,
-} from "@wingman-x/kb-contract";
+} from "@winman-x/kb-contract";
 
 import { bootstrapTone } from "./bootstrap.js";
 import type { ObsidianConfig } from "./config.js";

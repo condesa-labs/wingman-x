@@ -36,7 +36,7 @@ function closeAll(servers: Server[]): Promise<void> {
  * race-conflict. The DEFAULT_PORT_RANGE constant test asserts the
  * production value; every bind-exercise test uses TEST_RANGE.
  *
- * Base 59800 chosen empirically — above Twitter Helper's range, below
+ * Base 59800 chosen empirically — above WinMan-X's range, below
  * the ephemeral port range (typically 49152–65535 but the upper end is
  * usually free for listen on macOS and Linux at test time).
  */
@@ -203,9 +203,9 @@ describe("port auto-bump", () => {
     // Now force saveState to fail by replacing the state path with a
     // directory — mkdirSync inside saveState will then fail because
     // the path already exists as a file that needs to be renamed in.
-    // Simpler: just unset TWITTER_HELPER_STATE_DIR to a path that
+    // Simpler: just unset WINMAN_X_STATE_DIR to a path that
     // mkdirSync would refuse. Use /dev/null/forbidden.
-    process.env.TWITTER_HELPER_STATE_DIR = "/dev/null/forbidden";
+    process.env.WINMAN_X_STATE_DIR = "/dev/null/forbidden";
 
     app = await buildServer();
     const chosen = await chooseAndBindPort(app, { range: [...TEST_RANGE] });

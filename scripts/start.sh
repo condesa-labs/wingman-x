@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# start.sh — one-command dev startup for the Twitter Helper stack.
+# start.sh — one-command dev startup for the WinMan-X stack.
 #
 # Behaviour (decided 2026-05-08):
 #   1. Pre-flight: Node ≥ 20, npm_modules fresh.
@@ -44,13 +44,13 @@ fi
 
 # ─── 2. Build extension ───────────────────────────────────────────────────
 log "Building extension…"
-(cd "${REPO_ROOT}" && npm --workspace @twitter-helper/extension run build --silent) \
+(cd "${REPO_ROOT}" && npm --workspace @winman-x/extension run build --silent) \
   || die "extension build failed"
 
 # ─── 3. Start daemon in background, log everything ───────────────────────
 log "Starting daemon…"
 : > "${DAEMON_LOG}"
-(cd "${REPO_ROOT}" && npm --workspace @twitter-helper/daemon run dev) \
+(cd "${REPO_ROOT}" && npm --workspace @winman-x/daemon run dev) \
   > "${DAEMON_LOG}" 2>&1 &
 DAEMON_PID=$!
 

@@ -7,7 +7,7 @@ import {
   LibraryEntrySchema,
   ToneResultSchema,
   type KBAdapter,
-} from "@wingman-x/kb-contract";
+} from "@winman-x/kb-contract";
 import { describe, it } from "vitest";
 import { z } from "zod";
 

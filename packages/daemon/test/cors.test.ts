@@ -188,9 +188,9 @@ describe("CORS preflight", () => {
     }
   });
 
-  describe("TWITTER_HELPER_EXT_ALLOWED_IDS (f4 defense-in-depth)", () => {
+  describe("WINMAN_X_EXT_ALLOWED_IDS (f4 defense-in-depth)", () => {
     afterEach(() => {
-      delete process.env.TWITTER_HELPER_EXT_ALLOWED_IDS;
+      delete process.env.WINMAN_X_EXT_ALLOWED_IDS;
     });
 
     it("when unset, accepts any canonical extension ID (dev default)", async () => {
@@ -211,7 +211,7 @@ describe("CORS preflight", () => {
     it("when set to a single ID, rejects other canonical IDs", async () => {
       const allowed = "abcdefghijklmnopabcdefghijklmnop";
       const rejected = "bcdefghijklmnopabcdefghijklmnopa";
-      process.env.TWITTER_HELPER_EXT_ALLOWED_IDS = allowed;
+      process.env.WINMAN_X_EXT_ALLOWED_IDS = allowed;
       app = await buildServer();
 
       const okRes = await app.inject({
@@ -241,7 +241,7 @@ describe("CORS preflight", () => {
       const idA = "abcdefghijklmnopabcdefghijklmnop";
       const idB = "bcdefghijklmnopabcdefghijklmnopa";
       const idC = "cdefghijklmnopabcdefghijklmnopab";
-      process.env.TWITTER_HELPER_EXT_ALLOWED_IDS = `${idA}, ${idB}`;
+      process.env.WINMAN_X_EXT_ALLOWED_IDS = `${idA}, ${idB}`;
       app = await buildServer();
 
       for (const ok of [idA, idB]) {
@@ -277,7 +277,7 @@ describe("CORS preflight", () => {
       // to "" or a template fails to render. Instead, reject all
       // chrome-extension origins.
       for (const emptyValue of ["", "   ", ",  ,", ","]) {
-        process.env.TWITTER_HELPER_EXT_ALLOWED_IDS = emptyValue;
+        process.env.WINMAN_X_EXT_ALLOWED_IDS = emptyValue;
         app = await buildServer();
         const res = await app.inject({
           method: "OPTIONS",
@@ -297,7 +297,7 @@ describe("CORS preflight", () => {
     });
 
     it("still honors twitter.com / x.com / localhost content-script origins regardless of pinning", async () => {
-      process.env.TWITTER_HELPER_EXT_ALLOWED_IDS = "abcdefghijklmnopabcdefghijklmnop";
+      process.env.WINMAN_X_EXT_ALLOWED_IDS = "abcdefghijklmnopabcdefghijklmnop";
       app = await buildServer();
       for (const origin of [
         "https://twitter.com",

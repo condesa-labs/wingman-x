@@ -23,7 +23,7 @@ import {
   type LibraryContent,
   type LibraryEntry,
   type ToneResult,
-} from "@wingman-x/kb-contract";
+} from "@winman-x/kb-contract";
 import {
   resolveKBCachePaths,
   type KBAdapterCachePaths,

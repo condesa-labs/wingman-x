@@ -19,7 +19,7 @@ import {
   type LibraryContent,
   type LibraryEntry,
   type ToneResult,
-} from "@wingman-x/kb-contract";
+} from "@winman-x/kb-contract";
 import { createKBLoader } from "../src/kb-loader.js";
 
 const originalStateDir = process.env.WINGMAN_X_STATE_DIR;
@@ -241,11 +241,11 @@ describe("KB loader configuration", () => {
 
   it("rejects unknown adapter packages with CONFIG_INVALID", async () => {
     const stateDir = tempStateDir();
-    writeConfig(stateDir, testConfig("@wingman-x/not-installed"));
+    writeConfig(stateDir, testConfig("@winman-x/not-installed"));
 
     const loader = createKBLoader();
     await expect(loader.refresh()).rejects.toMatchObject({ code: "CONFIG_INVALID" });
-    expect(loader.status().lastError?.message).toContain("@wingman-x/not-installed");
+    expect(loader.status().lastError?.message).toContain("@winman-x/not-installed");
   });
 
   it("rejects adapter modules without named createAdapter and configSchema exports", async () => {
@@ -483,8 +483,8 @@ describe("agent-kit dependency placement", () => {
 
     for (const dependency of [
       "proper-lockfile",
-      "@wingman-x/kb-contract",
-      "@wingman-x/adapter-fs",
+      "@winman-x/kb-contract",
+      "@winman-x/adapter-fs",
     ]) {
       expect(packageJson.dependencies).toHaveProperty(dependency);
       expect(packageJson.devDependencies ?? {}).not.toHaveProperty(dependency);

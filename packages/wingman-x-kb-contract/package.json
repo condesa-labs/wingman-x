@@ -1,5 +1,5 @@
 {
-  "name": "@wingman-x/kb-contract",
+  "name": "@winman-x/kb-contract",
   "private": true,
   "version": "0.1.0",
   "description": "Public adapter contract package for WingmanX knowledge-base integrations.",

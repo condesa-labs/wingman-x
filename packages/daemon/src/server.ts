@@ -84,7 +84,7 @@ export const DAEMON_HEADER = "x-twitter-helper-daemon";
 const CHROME_EXT_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 
 /**
- * Parse `TWITTER_HELPER_EXT_ALLOWED_IDS` (comma-separated). Return
+ * Parse `WINMAN_X_EXT_ALLOWED_IDS` (comma-separated). Return
  * value distinguishes three states:
  *
  *   - `undefined` → env var was never set. Dev default: any canonical
@@ -101,7 +101,7 @@ const CHROME_EXT_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
  * Store ID once the extension ships.
  */
 function extAllowList(): ReadonlySet<string> | undefined {
-  const raw = process.env.TWITTER_HELPER_EXT_ALLOWED_IDS;
+  const raw = process.env.WINMAN_X_EXT_ALLOWED_IDS;
   if (raw === undefined) return undefined;
   return new Set(
     raw
@@ -139,7 +139,7 @@ export async function buildServer(
         return cb(null, true);
       }
       if (CHROME_EXT_ORIGIN.test(origin)) {
-        // Three states for TWITTER_HELPER_EXT_ALLOWED_IDS:
+        // Three states for WINMAN_X_EXT_ALLOWED_IDS:
         //   - undefined (unset) → dev default, accept any canonical ID.
         //   - non-empty Set     → pin, accept only listed IDs.
         //   - empty Set         → fail-closed, reject all extensions

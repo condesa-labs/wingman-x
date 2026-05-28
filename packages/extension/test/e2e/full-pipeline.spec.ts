@@ -5,7 +5,7 @@
  *
  * Flow under test:
  *   1. Spawn a real daemon on a disposable state dir.
- *   2. Use `@twitter-helper/agent-kit`'s `createDaemonClient` as the
+ *   2. Use `@winman-x/agent-kit`'s `createDaemonClient` as the
  *      "agent simulator" to POST one candidate. This deliberately
  *      exercises the public agent-kit surface instead of a raw fetch,
  *      because CP09 shipped the client as the agent-facing contract.
@@ -37,7 +37,7 @@ import { expect, test } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDaemonClient } from "@twitter-helper/agent-kit";
+import { createDaemonClient } from "@winman-x/agent-kit";
 import {
   launchWithExtension,
   startDaemon,
@@ -82,7 +82,7 @@ test.afterAll(async () => {
 });
 
 test("agent → daemon → extension → composer fill (happy path)", async () => {
-  // --- 1. Agent simulator: POST candidates via @twitter-helper/agent-kit ---
+  // --- 1. Agent simulator: POST candidates via @winman-x/agent-kit ---
   const client = createDaemonClient(env.daemon.port);
   const { accepted } = await client.postCandidates([
     {

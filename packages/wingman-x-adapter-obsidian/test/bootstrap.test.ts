@@ -1,6 +1,6 @@
 import http from "node:http";
 import https from "node:https";
-import { ToneResultSchema } from "@wingman-x/kb-contract";
+import { ToneResultSchema } from "@winman-x/kb-contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { bootstrapTone } from "../src/bootstrap.js";

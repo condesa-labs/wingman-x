@@ -1,28 +1,32 @@
-# Chrome Twitter Helper
+# WinMan-X
 
-> **Semi-automated, voice-matched Twitter / X replies — drafted by any LLM
-> agent you already use, reviewed by you, never auto-submitted.**
+> **Obsidian-powered, human-in-the-loop social efficiency tool — AI drafts
+> replies from your local knowledge base, you review and send.**
 
-A Chrome extension + a local daemon that pair with any MCP-capable LLM agent
-(Claude Code, OpenAI Codex CLI, Gemini CLI, or your own Node script) to turn
-"scroll the feed and think of something clever to reply" into a
-**one-click fill** against Twitter's native composer. You always press Tweet
-yourself.
+WinMan-X connects your **Obsidian knowledge base** to your social workflow.
+Instead of scrolling the feed and brainstorming replies from scratch, the
+system scans for tweets that match your expertise, drafts a reply using your
+own notes and tone guide, then hands it to you for review. You edit, approve,
+and press Tweet — always.
+
+Think of it as a **research assistant that knows how you think**, not an
+auto-posting bot. Every draft is a suggestion; every post is your decision.
 
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org/)
 [![Manifest](https://img.shields.io/badge/chrome-MV3-blue)](https://developer.chrome.com/docs/extensions/mv3/intro/)
 [![Tests](https://img.shields.io/badge/tests-214%20unit%20%2F%2014%20e2e-success)](#tests-and-coverage)
 [![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
-- 🤖 **Agent-agnostic** — daemon + extension speak a plain HTTP contract; swap
-  Claude Code for Codex / Gemini / a cron script without touching either.
-- 🧠 **Voice-matched** — the agent reads a local knowledge base
-  (`~/.twitter-helper/kb/`) to learn how *you* talk before drafting anything.
-- 🔒 **100% local, no cloud** — candidates, drafts, and KB all live on disk.
-  The only network traffic is your agent calling its LLM (on whatever
-  endpoint you configure there).
-- 🙋 **Human in the loop** — extension fills the native composer; Twitter's
-  Tweet button remains the submit action. **No auto-posting, ever.**
+- 📚 **Obsidian-powered** — the AI reads your local knowledge base
+  (`tone.md` + `library/*.md`) to understand your expertise, opinions,
+  and how you talk before drafting anything.
+- 🙋 **Human in the loop** — every draft is a starting point. You edit,
+  approve, and press Tweet. **No auto-posting, ever.**
+- 🤖 **Agent-agnostic** — daemon + extension speak a plain HTTP contract;
+  swap Claude Code for Codex / Gemini / your own script without touching
+  either.
+- 🔒 **100% local** — candidates, drafts, and KB all live on disk. The only
+  network traffic is your agent calling its LLM endpoint.
 - 🧪 **Well-tested** — 214 unit/integration tests (94.83% daemon coverage) +
   14 Playwright E2E specs against a localhost fixture. See
   [Tests and coverage](#tests-and-coverage).
@@ -43,7 +47,7 @@ jumps to the tweet with tab reuse.
 
 <p align="center">
   <img src="./docs/screenshots/01-popup-list.png"
-       alt="Twitter Helper popup listing three candidate tweets with drafted replies" width="360">
+       alt="WinMan-X popup listing three candidate tweets with drafted replies" width="360">
 </p>
 
 ### 2. Dock — drafted reply appears on the tweet page
@@ -107,17 +111,17 @@ yourself**. The extension never submits for you.
 
 ## What it actually does
 
-A typical session, start to finish:
+WinMan-X turns your Obsidian vault into a social engagement superpower.
+Here's a typical session, start to finish:
 
-1. You run a **discovery skill** inside your agent host (e.g. `/discover-twitter-candidates` in Claude Code).
-2. The agent opens Twitter in a controlled Chrome via `chrome-devtools` / Playwright MCP, walks the feed or a handle list, and for each tweet that matches your KB it drafts a voice-matched reply, then **POSTs the batch to the daemon**.
-3. The daemon persists the batch and **pushes a `candidate_added` event** to the extension's background worker over SSE. Chrome shows an OS notification + action-bar badge.
-4. You click the browser-action **popup** → it lists every active candidate with a category pill. Click one.
-5. The tab with that tweet opens (or an existing Twitter tab is reused). The **Dock** appears at the right edge.
-6. Click ✍️ — the extension writes the draft into `tweetTextarea_0`, flipping the Tweet button enabled.
-7. Edit if you want, then **press Twitter's Tweet button yourself**.
+1. **Seed your knowledge base.** Copy `packages/sample-kb/` into `~/.winman-x/kb/`, then edit `tone.md` with your voice, topics, and reply heuristics. Add topical notes under `library/*.md` — these are what the AI draws from when deciding *what* to reply to and *how*.
+2. **Run discovery.** Your agent (Claude Code, Codex, etc.) scans the feed or a handle list, finds tweets that match your KB topics, and drafts a reply using your notes and tone guide.
+3. **AI posts the batch to the daemon.** Each candidate includes a drafted reply, the KB files it cited, and a match reason — so you can see *why* the AI thought this was worth your time.
+4. **You review.** Click the extension's popup to see all active candidates. Each card shows the original tweet, the drafted reply, and which KB files informed it.
+5. **One-click fill.** Click a candidate → it opens in a tab, the Dock appears, press ✍️ → the draft fills Twitter's composer. Edit if you want.
+6. **You press Tweet.** The extension never submits for you. The human is always the last step.
 
-At any point you can dismiss (🗑️) or ask the agent to regenerate (♻️) — the extension POSTs `action=dismissed` / `action=regen_requested`, the popup card drops, and the agent notices the regen request on its next poll.
+At any point you can dismiss a candidate (🗑️) or ask the agent to regenerate (♻️).
 
 ---
 
@@ -138,8 +142,8 @@ At any point you can dismiss (🗑️) or ask the agent to regenerate (♻️) �
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/<your-fork>/chrome-twitter-helper
-cd chrome-twitter-helper
+git clone https://github.com/<your-org>/winman-x
+cd winman-x
 npm install
 ```
 
@@ -148,7 +152,7 @@ npm install
 ### 2. Start the daemon
 
 ```bash
-npm --workspace @twitter-helper/daemon run dev
+npm --workspace @winman-x/daemon run dev
 # [daemon] listening on port 53827
 ```
 
@@ -164,7 +168,7 @@ curl -s http://localhost:53827/health
 ### 3. Build and load the extension
 
 ```bash
-npm --workspace @twitter-helper/extension run build
+npm --workspace @winman-x/extension run build
 ```
 
 Then in Chrome:
@@ -179,11 +183,11 @@ Re-running `build` does **not** auto-reload the unpacked install — hit the ↻
 ### 4. Seed your knowledge base
 
 ```bash
-mkdir -p ~/.twitter-helper/kb
-cp -R packages/sample-kb/* ~/.twitter-helper/kb/
+mkdir -p ~/.winman-x/kb
+cp -R packages/sample-kb/* ~/.winman-x/kb/
 ```
 
-Edit `~/.twitter-helper/kb/tone.md` to match how you actually reply: phrases
+Edit `~/.winman-x/kb/tone.md` to match how you actually reply: phrases
 you always avoid, preferred length, go-to analogies, "never do" list. The
 richer this file, the less generic the drafts.
 
@@ -192,7 +196,7 @@ pulls from when picking what to reply to.
 
 ### 5. Run discovery
 
-**Prereq — launch the Twitter Helper Chrome profile.** The agent needs a
+**Prereq — launch the WinMan-X Chrome profile.** The agent needs a
 logged-in Chromium to read your timeline. The repo ships a helper that
 boots a dedicated, persistently cookied Chrome with remote debugging on:
 
@@ -223,7 +227,7 @@ Skill source: [`.claude/skills/discover-twitter-candidates/SKILL.md`](./.claude/
 
 **Codex CLI / Gemini CLI / any other MCP host** — follow the agent-agnostic
 walkthrough in [`docs/agent-workflow.md`](./docs/agent-workflow.md). Every
-host talks to the daemon through the same `@twitter-helper/agent-kit`
+host talks to the daemon through the same `@winman-x/agent-kit`
 TypeScript client.
 
 ### 6. Complete one reply cycle
@@ -270,7 +274,7 @@ and extension never phone home.
 | [`packages/daemon`](./packages/daemon) | Fastify HTTP service on `localhost:53827` (auto-bump up to 53836). Persists the candidate pool. Brokers all agent ↔ extension traffic. | Fastify 5, Zod, Node ≥ 20 |
 | [`packages/extension`](./packages/extension) | Chrome MV3 extension. Background SW does port discovery + badge + SSE-driven OS notifications. Content script renders the Dock on tweet-detail pages. Popup lists active candidates. **No LLM logic, no agent-vendor code.** | `@types/chrome`, Playwright for E2E |
 | [`packages/agent-kit`](./packages/agent-kit) | Typed HTTP client + Zod-validated `Candidate` schema any MCP agent can use. Plus `scripts/` — reference CDP / scrape / walkthrough tools. | Zod |
-| [`packages/sample-kb`](./packages/sample-kb) | Example KB (`tone.md` + `library/*.md`). Copy into `~/.twitter-helper/kb/` and edit. | — |
+| [`packages/sample-kb`](./packages/sample-kb) | Example KB (`tone.md` + `library/*.md`). Copy into `~/.winman-x/kb/` and edit. | — |
 
 ### Why three components, not one?
 
@@ -290,7 +294,7 @@ implementations tested against are:
 | Claude Code | `chrome-devtools` MCP | Reference | Ships with [`.claude/skills/discover-twitter-candidates/SKILL.md`](./.claude/skills/discover-twitter-candidates/SKILL.md) in this repo. |
 | OpenAI Codex CLI | `chrome-devtools` MCP | Supported | Follow [`docs/agent-workflow.md`](./docs/agent-workflow.md); no vendor-specific code required. |
 | Gemini CLI | `chrome-devtools` MCP | Supported | Same as Codex. Tool names identical between hosts. |
-| Any other MCP host | `chrome-devtools` or Playwright MCP | Supported | The wire contract is HTTP + the `Candidate` schema. Use `@twitter-helper/agent-kit` directly from your script. |
+| Any other MCP host | `chrome-devtools` or Playwright MCP | Supported | The wire contract is HTTP + the `Candidate` schema. Use `@winman-x/agent-kit` directly from your script. |
 
 The agent's requirements boil down to:
 
@@ -322,7 +326,7 @@ Base URL: `http://localhost:<port>` where `<port>` is auto-discovered in `53827.
 ### Minimal agent-kit example
 
 ```ts
-import { createDaemonClient } from "@twitter-helper/agent-kit";
+import { createDaemonClient } from "@winman-x/agent-kit";
 
 const client = createDaemonClient(53827);
 
@@ -351,14 +355,14 @@ console.log(`stored ${stored} candidate(s)`);
 
 ## Configuration and state
 
-All state is **local** and lives under `~/.twitter-helper/` by default.
+All state is **local** and lives under `~/.winman-x/` by default.
 
 | Path | Purpose |
 |---|---|
-| `~/.twitter-helper/state.json` | Candidate pool, last-bound port, config snapshot. Rewritten on every mutation. |
-| `~/.twitter-helper/kb/tone.md` | Your voice guide — the most load-bearing file for reply quality. |
-| `~/.twitter-helper/kb/library/*.md` | Topical notes the agent uses when scoring candidates. Add/remove freely. |
-| `~/.twitter-helper/kb/selected-handles.txt` | Optional. Tier-sorted handle list the per-handle scrape scripts walk. |
+| `~/.winman-x/state.json` | Candidate pool, last-bound port, config snapshot. Rewritten on every mutation. |
+| `~/.winman-x/kb/tone.md` | Your voice guide — the most load-bearing file for reply quality. |
+| `~/.winman-x/kb/library/*.md` | Topical notes the agent uses when scoring candidates. Add/remove freely. |
+| `~/.winman-x/kb/selected-handles.txt` | Optional. Tier-sorted handle list the per-handle scrape scripts walk. |
 
 ### Configuration via `.env`
 
@@ -391,12 +395,12 @@ parse them as a single token.
 | Variable | Default | What it does |
 |---|---|---|
 | `PORT` | `53827` | Initial port the daemon tries; bumps up to `53836` on conflict. |
-| `TWITTER_HELPER_STATE_DIR` | `~/.twitter-helper` | Override state dir (useful for scratch / CI / per-profile). |
-| `TWITTER_HELPER_EXT_ALLOWED_IDS` | *(unset)* | Comma-separated Chrome extension IDs. When set, CORS ACAO is pinned to those extension origins and requests from other origins are 403'd. **Recommended for shared / hostile dev machines.** |
+| `WINMAN_X_STATE_DIR` | `~/.winman-x` | Override state dir (useful for scratch / CI / per-profile). |
+| `WINMAN_X_EXT_ALLOWED_IDS` | *(unset)* | Comma-separated Chrome extension IDs. When set, CORS ACAO is pinned to those extension origins and requests from other origins are 403'd. **Recommended for shared / hostile dev machines.** |
 | `DAEMON_PORT` | `53827` | Used by `agent-kit/scripts/*` to target the running daemon. |
 | `CDP_URL` | `http://127.0.0.1:9223` | Used by CDP-based agent scripts to attach to the browser. Must match `CHROME_REMOTE_DEBUGGING_PORT`; prefer IPv4 loopback because some hosts resolve `localhost` to `::1` while Chrome binds the debugging port on IPv4 only. |
 | `CHROME_EXECUTABLE` | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` | Consumed by `npm run launch-chrome`. Linux: `/usr/bin/google-chrome`. Windows: `C:\Program Files\Google\Chrome\Application\chrome.exe`. |
-| `CHROME_PROFILE_DIR` | `$HOME/.twitter-helper/chrome-profile` | Dedicated user-data-dir where Twitter cookies live. **Not** your default Chrome profile. |
+| `CHROME_PROFILE_DIR` | `$HOME/.winman-x/chrome-profile` | Dedicated user-data-dir where Twitter cookies live. **Not** your default Chrome profile. |
 | `CHROME_REMOTE_DEBUGGING_PORT` | `9223` | `--remote-debugging-port` passed to Chrome. |
 | `WATCHER_DRAFT_TIMEOUT_MS` | `60000` | Max time for one LLM draft before the watcher terminates that child process. |
 | `WATCHER_SCRAPE_TIMEOUT_MS` | `60000` | Max time for one scraper run before the watcher terminates that child process. |
@@ -428,7 +432,7 @@ Version management is centralised: root `package.json` is the single source of t
 ### Extension E2E (Playwright)
 
 ```bash
-npm --workspace @twitter-helper/extension run test:e2e
+npm --workspace @winman-x/extension run test:e2e
 ```
 
 Runs the full Dock fill-cycle against a **localhost fixture** (not real twitter.com) so it's deterministic and hermetic. See [`packages/extension/test/e2e/full-pipeline.spec.ts`](./packages/extension/test/e2e/full-pipeline.spec.ts).
@@ -441,9 +445,9 @@ Runs the full Dock fill-cycle against a **localhost fixture** (not real twitter.
 
 | Workspace | Unit / integration | E2E | Coverage gate |
 |---|---|---|---|
-| `@twitter-helper/daemon` | 65 (incl. 5 SSE) | — | ≥ 85% (currently **94.83%**) |
-| `@twitter-helper/agent-kit` | 58 | — | ≥ 85% branch coverage |
-| `@twitter-helper/extension` | 91 unit | 14 Playwright E2E | Localhost fixture |
+| `@winman-x/daemon` | 65 (incl. 5 SSE) | — | ≥ 85% (currently **94.83%**) |
+| `@winman-x/agent-kit` | 58 | — | ≥ 85% branch coverage |
+| `@winman-x/extension` | 91 unit | 14 Playwright E2E | Localhost fixture |
 | **Total** | **214** | **14** | — |
 
 Tests live alongside each package (`<pkg>/test/` or `<pkg>/test/e2e/`). Run the full suite with `npm test` at the repo root.
@@ -459,7 +463,7 @@ release, run this short script once by hand** and capture a screenshot:
 1. Start the daemon.
 2. Build + load the extension unpacked.
 3. Log in to twitter.com (or x.com) in that Chrome profile.
-4. Run discovery with a small `~/.twitter-helper/kb/tone.md`.
+4. Run discovery with a small `~/.winman-x/kb/tone.md`.
 5. Open the extension popup — assert ≥ 1 candidate listed. *(expected shape: [screenshot 1 above](./docs/screenshots/01-popup-list.png))*
 6. Click a candidate — it opens the tweet in a tab (or reuses an existing Twitter tab if the toggle is on).
 7. Assert the Dock appears at the right edge. *(expected shape: [screenshot 2 above](./docs/screenshots/02-dock-expanded.png))*
@@ -496,7 +500,7 @@ Classic bundler-contract-drift: a new import got added without being registered 
 ## Security considerations
 
 - **The daemon binds on `127.0.0.1`, not `0.0.0.0`.** It's not reachable from the LAN.
-- **CORS** defaults to allow-all for the `chrome-extension://…` origin. On shared / hostile dev machines, set `TWITTER_HELPER_EXT_ALLOWED_IDS=<your-ext-id>` so the daemon 403's requests from any other extension.
+- **CORS** defaults to allow-all for the `chrome-extension://…` origin. On shared / hostile dev machines, set `WINMAN_X_EXT_ALLOWED_IDS=<your-ext-id>` so the daemon 403's requests from any other extension.
 - **A daemon identity header** (`x-twitter-helper-daemon: 1`) gates extension requests — a malicious page script can't impersonate the extension via fetch without first passing the CORS preflight, and this header surfaces any mismatch in the SW logs.
 - **No secrets in the extension.** All LLM credentials live on the agent side. Losing an extension install ≠ losing an API key.
 - **KB contents are untrusted input** for the agent — the agent reads them as hints, not code. Nothing in the KB is ever `exec`'d by the daemon or the extension.
@@ -511,7 +515,7 @@ If you find a security issue, please open a private advisory via GitHub rather t
 Contributions welcome. A few ground rules that will save review round-trips:
 
 1. **Run `npm run build && npm test && npm run typecheck`** before opening a PR. Extension E2E requires a fresh `dist/`.
-2. **Schemas live once.** `Candidate` lives in `@twitter-helper/agent-kit`; `ActionBody` / `SuggestionQuery` live in `@twitter-helper/daemon`. Don't fork them — re-export.
+2. **Schemas live once.** `Candidate` lives in `@winman-x/agent-kit`; `ActionBody` / `SuggestionQuery` live in `@winman-x/daemon`. Don't fork them — re-export.
 3. **No LLM calls in the daemon or the extension.** Ever. That's the agent's job. PRs that add vendor SDKs to either will be rejected on architecture grounds.
 4. **Content-script imports go in `CONTENT_BUNDLE_ORDER`.** Any new `src/` file the content script pulls from has to be registered in [`packages/extension/scripts/copy-assets.ts`](./packages/extension/scripts/copy-assets.ts), or the bundle will silently skip the referenced symbols.
 5. **Tests first for behavioural changes.** Unit coverage on the daemon is gated at 85%. Extension E2E specs cover the fill happy path and the regen loop.
@@ -531,7 +535,7 @@ See [`.harness/retro/2026-04-22-twitter-helper.md`](./.harness/retro/2026-04-22-
 **0.1.x** — feature-complete for the MVP described above. Known gaps:
 
 - Real twitter.com nightly smoke is out of scope (manual QA script covers release gates).
-- No multi-account story (one `~/.twitter-helper/` per dev profile). Override `TWITTER_HELPER_STATE_DIR` for parallel setups.
+- No multi-account story (one `~/.winman-x/` per dev profile). Override `WINMAN_X_STATE_DIR` for parallel setups.
 - No cloud sync — intentional. If you want a different machine to see the same candidates, copy `state.json` over.
 
 Next candidates (unscheduled): multi-account, richer regen UX with diff view, optional transcript log of drafted replies for self-review.

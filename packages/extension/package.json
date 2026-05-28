@@ -1,5 +1,5 @@
 {
-  "name": "@twitter-helper/extension",
+  "name": "@winman-x/extension",
   "private": true,
   "version": "0.1.6",
   "description": "Chrome MV3 extension — agent-agnostic Twitter reply helper.",
@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",
-    "@twitter-helper/agent-kit": "*",
+    "@winman-x/agent-kit": "*",
     "@types/chrome": "^0.0.287",
     "@types/node": "^22.10.2",
     "happy-dom": "^20.9.0",

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Twitter Helper",
+  "name": "WinMan-X",
   "version": "0.2.0",
-  "description": "Agent-agnostic semi-auto reply assistant for Twitter / X.",
+  "description": "Obsidian-powered, human-in-the-loop reply assistant for Twitter / X.",
   "permissions": ["storage", "alarms", "notifications"],
   "host_permissions": [
     "https://twitter.com/*",
@@ -43,7 +43,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Twitter Helper"
+    "default_title": "WinMan-X"
   },
   "web_accessible_resources": [
     {

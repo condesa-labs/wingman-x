@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * watcher.ts — long-running SSE subscriber that drives the discovery
- * loop end-to-end. Run as `npm --workspace @twitter-helper/agent-kit
+ * loop end-to-end. Run as `npm --workspace @winman-x/agent-kit
  * run watcher` per CP05 of the twitter-helper-watcher spec.
  *
  * Architecture (concise):

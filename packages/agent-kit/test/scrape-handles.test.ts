@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { HandleSet } from "@wingman-x/kb-contract";
+import type { HandleSet } from "@winman-x/kb-contract";
 import { selectScrapeHandles } from "../src/scrape-handles.js";
 
 describe("selectScrapeHandles", () => {

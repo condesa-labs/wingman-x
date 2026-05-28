@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# launch-chrome.sh — boot Chrome with the Twitter Helper profile + remote
+# launch-chrome.sh — boot Chrome with the WinMan-X profile + remote
 # debugging port so the agent-kit CDP scripts (scrape-x-home.ts, etc.) can
 # attach to a real, cookied session.
 #
@@ -72,7 +72,7 @@ load_envfile "$REPO_ROOT/.env.local"
 restore_real_env_overrides
 
 CHROME_EXECUTABLE="${CHROME_EXECUTABLE:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
-CHROME_PROFILE_DIR="${CHROME_PROFILE_DIR:-$HOME/.twitter-helper/chrome-profile}"
+CHROME_PROFILE_DIR="${CHROME_PROFILE_DIR:-$HOME/.winman-x/chrome-profile}"
 CHROME_REMOTE_DEBUGGING_PORT="${CHROME_REMOTE_DEBUGGING_PORT:-9223}"
 
 # Expand $HOME in CHROME_PROFILE_DIR if the .env used $HOME literally.
