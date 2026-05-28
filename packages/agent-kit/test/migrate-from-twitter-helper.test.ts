@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { parseHandles } from "@wingman-x/kb-contract";
+import { parseHandles } from "@winman-x/kb-contract";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrateTwitterHelperKB } from "../src/migrate-core.js";
 

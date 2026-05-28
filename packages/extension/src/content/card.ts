@@ -180,7 +180,7 @@ function buildCardElement(options: CardOptions): HTMLElement {
   const root = document.createElement("div");
   root.id = CARD_ID;
   root.setAttribute("role", "region");
-  root.setAttribute("aria-label", "Twitter Helper Card");
+  root.setAttribute("aria-label", "WinMan-X Card");
   root.classList.add("twh-card-default");
   root.dataset["tweetId"] = options.tweetId;
 
@@ -192,7 +192,7 @@ function buildCardElement(options: CardOptions): HTMLElement {
   // top bar feels natural. We still tag a visible ⋮⋮ grip so the
   // affordance is discoverable.
   header.dataset["testid"] = "twh-card-drag-handle";
-  header.setAttribute("aria-label", "Drag Twitter Helper Card");
+  header.setAttribute("aria-label", "Drag WinMan-X Card");
 
   const grip = document.createElement("span");
   grip.className = "twh-card-grip";
@@ -202,7 +202,7 @@ function buildCardElement(options: CardOptions): HTMLElement {
 
   const title = document.createElement("span");
   title.className = "twh-card-title";
-  title.textContent = "Twitter Helper";
+  title.textContent = "WinMan-X";
   header.appendChild(title);
 
   const collapseBtn = document.createElement("button");

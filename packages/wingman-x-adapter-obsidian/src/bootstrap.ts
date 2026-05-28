@@ -1,4 +1,4 @@
-import type { BootstrapOptions, ToneResult } from "@wingman-x/kb-contract";
+import type { BootstrapOptions, ToneResult } from "@winman-x/kb-contract";
 
 const BASE_TEMPLATE = `# WingmanX Tone Bootstrap
 

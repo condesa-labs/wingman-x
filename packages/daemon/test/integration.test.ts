@@ -85,7 +85,7 @@ describe("daemon binary (integration)", () => {
       child = spawn("npx", ["tsx", BIN], {
         env: {
           ...process.env,
-          TWITTER_HELPER_STATE_DIR: tmp.dir,
+          WINMAN_X_STATE_DIR: tmp.dir,
         },
         stdio: ["ignore", "pipe", "pipe"],
       });

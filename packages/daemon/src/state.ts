@@ -13,17 +13,17 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { StateFileSchema, type Candidate, type StateFile } from "./schemas.js";
 
-export const DEFAULT_STATE_SUBDIR = ".twitter-helper";
+export const DEFAULT_STATE_SUBDIR = ".winman-x";
 export const STATE_FILE_NAME = "state.json";
 
 /**
  * Resolve the state directory.
- * - If `TWITTER_HELPER_STATE_DIR` is set, use that verbatim (used by
- *   tests to avoid clobbering `~/.twitter-helper/state.json`).
- * - Otherwise, default to `~/.twitter-helper`.
+ * - If `WINMAN_X_STATE_DIR` is set, use that verbatim (used by
+ *   tests to avoid clobbering `~/.winman-x/state.json`).
+ * - Otherwise, default to `~/.winman-x`.
  */
 export function resolveStateDir(): string {
-  const override = process.env.TWITTER_HELPER_STATE_DIR;
+  const override = process.env.WINMAN_X_STATE_DIR;
   if (override && override.length > 0) {
     return override;
   }

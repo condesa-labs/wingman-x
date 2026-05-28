@@ -1,7 +1,7 @@
 # Tone Guide (illustrative sample)
 
 > This is an **illustrative** sample knowledge base shipped in
-> `packages/sample-kb/`. Copy it to `~/.twitter-helper/kb/` and edit
+> `packages/sample-kb/`. Copy it to `~/.winman-x/kb/` and edit
 > it to match your own voice before running discovery against your
 > real account.
 

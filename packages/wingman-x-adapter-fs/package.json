@@ -1,5 +1,5 @@
 {
-  "name": "@wingman-x/adapter-fs",
+  "name": "@winman-x/adapter-fs",
   "private": true,
   "version": "0.1.0",
   "description": "Reference filesystem adapter for WingmanX knowledge-base integrations.",
@@ -22,10 +22,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@wingman-x/kb-contract": "*",
+    "@winman-x/kb-contract": "*",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@wingman-x/adapter-test-kit": "*"
+    "@winman-x/adapter-test-kit": "*"
   }
 }

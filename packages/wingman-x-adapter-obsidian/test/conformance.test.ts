@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { runConformanceTests } from "@wingman-x/adapter-test-kit";
-import { parseHandles } from "@wingman-x/kb-contract";
+import { runConformanceTests } from "@winman-x/adapter-test-kit";
+import { parseHandles } from "@winman-x/kb-contract";
 import { describe, expect, it } from "vitest";
 
 import { configSchema, createAdapter, type ObsidianConfig } from "../src/index.js";
 
 const vaultPath = resolve(import.meta.dirname, "fixtures/sample-vault");
 
-describe("@wingman-x/adapter-obsidian conformance", () => {
+describe("@winman-x/adapter-obsidian conformance", () => {
   runConformanceTests<ObsidianConfig>({
     createAdapter,
     configSchema,

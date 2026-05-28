@@ -10,7 +10,7 @@ function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-describe("@wingman-x/adapter-fs package scaffold", () => {
+describe("@winman-x/adapter-fs package scaffold", () => {
   it("is registered as a workspace with the exact dependency shape", () => {
     const rootPackageJson = readJson(resolve(repoRoot, "package.json")) as {
       workspaces?: string[];
@@ -22,7 +22,7 @@ describe("@wingman-x/adapter-fs package scaffold", () => {
 
     const manifest = readJson(manifestPath);
     expect(manifest).toMatchObject({
-      name: "@wingman-x/adapter-fs",
+      name: "@winman-x/adapter-fs",
       private: true,
       type: "module",
       main: "dist/index.js",
@@ -36,11 +36,11 @@ describe("@wingman-x/adapter-fs package scaffold", () => {
       files: ["dist", "src"],
     });
     expect((manifest as { dependencies?: Record<string, string> }).dependencies).toEqual({
-      "@wingman-x/kb-contract": "*",
+      "@winman-x/kb-contract": "*",
       zod: "^4.3.6",
     });
     expect((manifest as { devDependencies?: Record<string, string> }).devDependencies).toEqual({
-      "@wingman-x/adapter-test-kit": "*",
+      "@winman-x/adapter-test-kit": "*",
     });
   });
 
@@ -86,7 +86,7 @@ describe("@wingman-x/adapter-fs package scaffold", () => {
       [
         "--input-type=module",
         "--eval",
-        "console.log(import.meta.resolve('@wingman-x/adapter-fs'))",
+        "console.log(import.meta.resolve('@winman-x/adapter-fs'))",
       ],
       {
         cwd: repoRoot,
@@ -97,9 +97,9 @@ describe("@wingman-x/adapter-fs package scaffold", () => {
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toMatch(
-      /(?:node_modules\/@wingman-x\/adapter-fs|packages\/wingman-x-adapter-fs)\/dist\/index\.js$/,
+      /(?:node_modules\/@winman-x\/adapter-fs|packages\/wingman-x-adapter-fs)\/dist\/index\.js$/,
     );
-    expect(realpathSync(resolve(repoRoot, "node_modules/@wingman-x/adapter-fs"))).toBe(
+    expect(realpathSync(resolve(repoRoot, "node_modules/@winman-x/adapter-fs"))).toBe(
       packageRoot,
     );
   });

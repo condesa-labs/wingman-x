@@ -145,7 +145,7 @@ describe("atomic persistence", () => {
   it("creates the state directory if missing", async () => {
     // Point at a dir that does not exist yet.
     const nested = join(ctx.dir, "nested", "dir");
-    process.env.TWITTER_HELPER_STATE_DIR = nested;
+    process.env.WINMAN_X_STATE_DIR = nested;
 
     saveState({
       candidates: {},

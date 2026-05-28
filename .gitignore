@@ -15,6 +15,12 @@ playwright-report/
 !.harness/config.json
 .review-loop/
 
+# Personal AI assistant config (permissions, session state).
+# .claude/skills/ is committed as reference skills; settings and tasks are personal.
+.claude/settings.*.json
+.claude/tasks/
+.claude/projects/
+
 # Per-session dryrun artifacts produced by packages/agent-kit/scripts/
 # (real tweet ids / handles — do not commit).
 packages/agent-kit/scripts/dryrun-*.json

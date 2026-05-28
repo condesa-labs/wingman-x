@@ -1,5 +1,5 @@
 {
-  "name": "@wingman-x/adapter-test-kit",
+  "name": "@winman-x/adapter-test-kit",
   "private": true,
   "version": "0.1.0",
   "description": "Vitest conformance suite for WingmanX knowledge-base adapters.",
@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@wingman-x/kb-contract": "*",
+    "@winman-x/kb-contract": "*",
     "zod": "^4.3.6",
     "vitest": "^2.1.8"
   }

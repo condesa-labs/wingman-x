@@ -1,8 +1,8 @@
 {
-  "name": "@twitter-helper/daemon",
+  "name": "@winman-x/daemon",
   "private": true,
   "version": "0.1.6",
-  "description": "Local companion daemon for Chrome Twitter Helper.",
+  "description": "Local companion daemon for WinMan-X.",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {

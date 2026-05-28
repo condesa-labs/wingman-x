@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 /**
  * Create an isolated temp state directory for a test and register cleanup.
- * Sets `TWITTER_HELPER_STATE_DIR` so the daemon reads/writes there instead
- * of `~/.twitter-helper` — this prevents tests from clobbering the real
+ * Sets `WINMAN_X_STATE_DIR` so the daemon reads/writes there instead
+ * of `~/.winman-x` — this prevents tests from clobbering the real
  * user state.
  */
 export function setupTempStateDir(): {
@@ -13,18 +13,18 @@ export function setupTempStateDir(): {
   statePath: string;
   cleanup: () => void;
 } {
-  const dir = mkdtempSync(join(tmpdir(), "twitter-helper-test-"));
-  const previous = process.env.TWITTER_HELPER_STATE_DIR;
-  process.env.TWITTER_HELPER_STATE_DIR = dir;
+  const dir = mkdtempSync(join(tmpdir(), "winman-x-test-"));
+  const previous = process.env.WINMAN_X_STATE_DIR;
+  process.env.WINMAN_X_STATE_DIR = dir;
   return {
     dir,
     statePath: join(dir, "state.json"),
     cleanup: () => {
       rmSync(dir, { recursive: true, force: true });
       if (previous === undefined) {
-        delete process.env.TWITTER_HELPER_STATE_DIR;
+        delete process.env.WINMAN_X_STATE_DIR;
       } else {
-        process.env.TWITTER_HELPER_STATE_DIR = previous;
+        process.env.WINMAN_X_STATE_DIR = previous;
       }
     },
   };

@@ -219,7 +219,7 @@ function buildDockElement(options: DockOptions): HTMLElement {
   const root = document.createElement("div");
   root.id = DOCK_ID;
   root.setAttribute("role", "toolbar");
-  root.setAttribute("aria-label", "Twitter Helper Dock");
+  root.setAttribute("aria-label", "WinMan-X Dock");
   root.classList.add("twh-dock-default");
   // Stash the payload so CP06 can read it without re-fetching.
   try {
@@ -231,7 +231,7 @@ function buildDockElement(options: DockOptions): HTMLElement {
   const handle = document.createElement("span");
   handle.className = "twh-handle";
   handle.dataset["testid"] = "twh-drag-handle";
-  handle.setAttribute("aria-label", "Drag Twitter Helper Dock");
+  handle.setAttribute("aria-label", "Drag WinMan-X Dock");
   handle.setAttribute("role", "button");
   handle.textContent = "⋮⋮";
   root.appendChild(handle);
