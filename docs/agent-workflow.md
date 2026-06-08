@@ -6,7 +6,7 @@ replies using the user's knowledge base, and POST the results to the local
 daemon. The reference implementation lives at
 [`.claude/skills/discover-twitter-candidates/SKILL.md`](../.claude/skills/discover-twitter-candidates/SKILL.md).
 
-The companion TypeScript HTTP client is `@winman-x/agent-kit`
+The companion TypeScript HTTP client is `@wingman-x/agent-kit`
 (`packages/agent-kit`). Everything on this page describes behaviour the agent
 must produce; the client handles the wire protocol.
 
@@ -53,7 +53,7 @@ order (or, if it knows the port from an earlier run, reads it from
    `packages/agent-kit/scripts/`.
 4. **Collect tweet candidates.** The scraper reads every-run handles from the
    WingmanX KB `handles.md`, applies the rotation pool from
-   `~/.winman-x/handle-evaluation.json`, opens each profile, and emits
+   `~/.wingman-x/handle-evaluation.json`, opens each profile, and emits
    `{tweet_id, tweet_url, author_handle, tweet_text}` tuples. Deduplicate by
    `tweet_id`.
 5. **Score + draft replies.** For each tweet, check whether it matches any
@@ -120,7 +120,7 @@ MVP.
 
 ### Alternative agent hosts
 
-Any host consuming `@winman-x/agent-kit` gets `listSignals` /
+Any host consuming `@wingman-x/agent-kit` gets `listSignals` /
 `ackSignal` / `postSignal` from the returned `DaemonClient`. Hosts
 without the client can call the endpoints directly with any HTTP
 library — the schemas are documented in
@@ -213,11 +213,11 @@ The knowledge base lives at `~/.wingman-x/kb/`:
   scraped every run by `scripts/scrape-x-handles.ts`; sampled/manual tiers are
   available to rotation and future workflows.
 
-Loading happens through `createKBLoader()` from `@winman-x/agent-kit`.
+Loading happens through `createKBLoader()` from `@wingman-x/agent-kit`.
 The default fs adapter reads `~/.wingman-x/kb/` and caches with
 stale-while-revalidate semantics; production callers do not read the old KB
 directory directly. On first boot, the watcher migrates a legacy
-`~/.winman-x/kb` source into the WingmanX location when the new target is
+`~/.wingman-x/kb` source into the WingmanX location when the new target is
 absent.
 
 If `~/.wingman-x/kb/` is missing or empty and no legacy migration source is
@@ -264,7 +264,7 @@ HTTP 429 in the CDP-connected browser session.
   user re-invokes. The agent does not auto-retry within a run.
 - Halve the per-run candidate quota on the next invocation after a
   rate-limit hit. This is purely client-side state — store a sentinel in
-  `~/.winman-x/kb/.rate-limit-seen` (ISO-8601 timestamp) if needed.
+  `~/.wingman-x/kb/.rate-limit-seen` (ISO-8601 timestamp) if needed.
 
 ### 3. DOM churn (Twitter changed its selectors)
 
@@ -288,7 +288,7 @@ the opened profile pages clearly have tweets; or returns malformed tuples
 port in `53827..53836`.
 
 **Recovery.** Surface: `"Daemon not running — start it with
-\`npm --workspace @winman-x/daemon run dev\`, then re-run."` Exit
+\`npm --workspace @wingman-x/daemon run dev\`, then re-run."` Exit
 non-zero.
 
 ### 5. Malformed Candidate rejected by daemon (bonus)

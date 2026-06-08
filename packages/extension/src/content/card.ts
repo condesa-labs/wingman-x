@@ -1,321 +1,199 @@
-/**
- * Card widget renderer (CP07).
- *
- * Mounts a floating card that shows the selected candidate's
- * `match_reason` + `suggested_reply` alongside the same five action
- * icons the Dock offers (minus ⋮⋮ and ⇱, plus ⇲). The Card is the
- * "expanded" shape of the Dock — the transition controller swaps
- * between them.
- *
- * Contract with the transition controller (`transitions.ts`):
- *   - `mountCard(options)` mounts the Card in the DOM and returns its
- *     root. Idempotent: calling it twice with the same `tweetId` is a
- *     no-op; calling it for a different id replaces the existing Card.
- *   - `unmountCard()` removes the Card and tears down its drag
- *     listener. Safe to call twice.
- *
- * Styling: production styles ship via manifest CSS
- * (`content_scripts[].css`), augmented by a fallback `<style>` injection
- * on first mount so the Card is still styled when the JS is loaded
- * without its companion stylesheet (mirrors the Dock's approach).
- *
- * Drag: only the header (`[data-testid="twh-card-drag-handle"]`) is a
- * drag handle. The body contains clickable content (the reply preview)
- * and must remain selectable; dragging the body would otherwise swallow
- * text selection and intercept clicks on the action icons.
- */
 import { attachDrag, applyPosition } from "./drag.js";
-import {
-  loadPosition,
-  savePosition,
-  clampToViewport,
-  type LocalStorageLike,
-  type WidgetPosition,
-} from "./position-store.js";
+import { loadPosition, savePosition, clampToViewport, type LocalStorageLike, type WidgetPosition, } from "./position-store.js";
 import { handleAction, type DockAction } from "./actions.js";
 import { clearToast } from "./toast.js";
-
-/** Root id — stable for E2E selectors and for idempotent re-mount. */
 export const CARD_ID = "twh-card";
-
-/** Default anchor (mirrors the Dock's right-edge default). */
 const CARD_DEFAULT_OFFSET_RIGHT = 16;
 const CARD_DEFAULT_OFFSET_TOP = 96;
-
-/**
- * Shape of the fields the Card displays. Extracted from the
- * `/suggestion` payload at the content-script boundary so the Card
- * stays agnostic to the raw API schema.
- */
 export interface CardCandidateView {
-  matchReason: string;
-  suggestedReply: string;
+    matchReason: string;
+    suggestedReply: string;
 }
-
 export interface CardOptions {
-  /** Tweet id — used for idempotence + as the POST action id. */
-  tweetId: string;
-  /** Extracted candidate fields (match_reason + suggested_reply). */
-  candidate: CardCandidateView;
-  /** Resolved daemon port. See dock.ts for null-handling semantics. */
-  port?: number | null;
-  /** Storage override for tests. */
-  storage?: LocalStorageLike;
-  /**
-   * Callback for the ⇲ icon — the transition controller flips the
-   * machine into `collapsing` and drives the reverse animation.
-   */
-  onCollapse: () => void;
-  /**
-   * Callback for 👎 dismiss. The controller passes a teardown that
-   * unmounts the Card (the dispatcher's default `unmountDock` path
-   * would do the wrong thing here — there is no Dock mounted).
-   */
-  onDismiss: () => void;
-  /**
-   * Initial top-left in viewport px. The controller passes the Dock's
-   * current position on expand so the Card appears at the same anchor.
-   * When omitted, falls back to persisted position → CSS default.
-   */
-  anchor?: WidgetPosition;
+    tweetId: string;
+    candidate: CardCandidateView;
+    port?: number | null;
+    storage?: LocalStorageLike;
+    onCollapse: () => void;
+    onDismiss: () => void;
+    anchor?: WidgetPosition;
 }
-
-/** Per-instance teardown — cleared on unmount. */
 let detachCardDrag: (() => void) | null = null;
-/** Tweet id of the currently-mounted Card, for idempotence. */
 let mountedCardTweetId: string | null = null;
-
-/**
- * Create (or replace) the Card in the page DOM. Returns the root so the
- * transition controller can attach CSS transition classes before the
- * animation frame.
- */
-export async function mountCard(
-  options: CardOptions,
-): Promise<HTMLElement | null> {
-  if (
-    mountedCardTweetId === options.tweetId &&
-    document.getElementById(CARD_ID) !== null
-  ) {
-    return document.getElementById(CARD_ID);
-  }
-  unmountCard();
-
-  const root = buildCardElement(options);
-  document.body.appendChild(root);
-
-  // Position precedence (same rules as the Dock):
-  //   1. Explicit `anchor` from the controller.
-  //   2. Persisted position (single storage key shared with the Dock).
-  //   3. CSS right-edge default.
-  let positionToApply: WidgetPosition | null = options.anchor ?? null;
-  if (positionToApply === null) {
-    positionToApply = await loadPosition({ storage: options.storage });
-  }
-  if (positionToApply !== null) {
-    const rect = root.getBoundingClientRect();
-    const clamped = clampToViewport(positionToApply, {
-      width: window.innerWidth,
-      height: window.innerHeight,
-      dockWidth: rect.width,
-      dockHeight: rect.height,
-    });
-    applyPosition(root, clamped);
-  }
-
-  const handle = root.querySelector<HTMLElement>(
-    '[data-testid="twh-card-drag-handle"]',
-  );
-  if (handle !== null) {
-    detachCardDrag = attachDrag({
-      target: root,
-      handle,
-      onDrop: (pos: WidgetPosition) => {
-        void savePosition(pos, { storage: options.storage });
-      },
-    });
-  }
-
-  // Wire action icons. Card shares the same handler as the Dock (spec:
-  // "5 action icons using the same handlers as CP06"). The ⇲ button is
-  // routed through the new `collapse` action so the caller can drive
-  // the transition machine.
-  const port = options.port ?? null;
-  const actionButtons = root.querySelectorAll<HTMLButtonElement>(
-    "button.twh-card-action",
-  );
-  for (const btn of actionButtons) {
-    const raw = btn.dataset["action"];
-    if (raw === undefined) continue;
-    const action = raw as DockAction;
-    btn.addEventListener("click", () => {
-      void handleAction(action, {
-        tweetId: options.tweetId,
-        suggestedReply: options.candidate.suggestedReply,
-        port,
-        onDismiss: options.onDismiss,
-        onCollapse: options.onCollapse,
-      });
-    });
-  }
-
-  mountedCardTweetId = options.tweetId;
-  return root;
+export async function mountCard(options: CardOptions): Promise<HTMLElement | null> {
+    if (mountedCardTweetId === options.tweetId &&
+        document.getElementById(CARD_ID) !== null) {
+        return document.getElementById(CARD_ID);
+    }
+    unmountCard();
+    const root = buildCardElement(options);
+    document.body.appendChild(root);
+    let positionToApply: WidgetPosition | null = options.anchor ?? null;
+    if (positionToApply === null) {
+        positionToApply = await loadPosition({ storage: options.storage });
+    }
+    if (positionToApply !== null) {
+        const rect = root.getBoundingClientRect();
+        const clamped = clampToViewport(positionToApply, {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            dockWidth: rect.width,
+            dockHeight: rect.height,
+        });
+        applyPosition(root, clamped);
+    }
+    const handle = root.querySelector<HTMLElement>('[data-testid="twh-card-drag-handle"]');
+    if (handle !== null) {
+        detachCardDrag = attachDrag({
+            target: root,
+            handle,
+            onDrop: (pos: WidgetPosition) => {
+                void savePosition(pos, { storage: options.storage });
+            },
+        });
+    }
+    const port = options.port ?? null;
+    const actionButtons = root.querySelectorAll<HTMLButtonElement>("button.twh-card-action");
+    for (const btn of actionButtons) {
+        const raw = btn.dataset["action"];
+        if (raw === undefined)
+            continue;
+        const action = raw as DockAction;
+        btn.addEventListener("click", () => {
+            void handleAction(action, {
+                tweetId: options.tweetId,
+                suggestedReply: options.candidate.suggestedReply,
+                port,
+                onDismiss: options.onDismiss,
+                onCollapse: options.onCollapse,
+            });
+        });
+    }
+    mountedCardTweetId = options.tweetId;
+    return root;
 }
-
-/** Remove the Card. Safe to call twice. */
 export function unmountCard(): void {
-  if (detachCardDrag !== null) {
-    detachCardDrag();
-    detachCardDrag = null;
-  }
-  mountedCardTweetId = null;
-  document.getElementById(CARD_ID)?.remove();
-  // Drop any lingering toast so a regen toast doesn't float alone after
-  // the Card collapses back to a Dock (which may itself toast later).
-  clearToast();
+    if (detachCardDrag !== null) {
+        detachCardDrag();
+        detachCardDrag = null;
+    }
+    mountedCardTweetId = null;
+    document.getElementById(CARD_ID)?.remove();
+    clearToast();
 }
-
 function buildCardElement(options: CardOptions): HTMLElement {
-  const root = document.createElement("div");
-  root.id = CARD_ID;
-  root.setAttribute("role", "region");
-  root.setAttribute("aria-label", "WinMan-X Card");
-  root.classList.add("twh-card-default");
-  root.dataset["tweetId"] = options.tweetId;
-
-  // --- Header (drag handle + title + collapse) ---------------------------
-  const header = document.createElement("header");
-  header.className = "twh-card-header";
-  header.dataset["testid"] = "twh-card-header";
-  // The whole header is the drag handle so grabbing anywhere along the
-  // top bar feels natural. We still tag a visible ⋮⋮ grip so the
-  // affordance is discoverable.
-  header.dataset["testid"] = "twh-card-drag-handle";
-  header.setAttribute("aria-label", "Drag WinMan-X Card");
-
-  const grip = document.createElement("span");
-  grip.className = "twh-card-grip";
-  grip.textContent = "\u22EE\u22EE"; // ⋮⋮
-  grip.setAttribute("aria-hidden", "true");
-  header.appendChild(grip);
-
-  const title = document.createElement("span");
-  title.className = "twh-card-title";
-  title.textContent = "WinMan-X";
-  header.appendChild(title);
-
-  const collapseBtn = document.createElement("button");
-  collapseBtn.type = "button";
-  collapseBtn.className = "twh-card-action twh-card-collapse";
-  collapseBtn.dataset["action"] = "collapse";
-  collapseBtn.dataset["testid"] = "twh-card-collapse";
-  collapseBtn.setAttribute("aria-label", "Collapse to dock");
-  collapseBtn.title = "Collapse to dock";
-  collapseBtn.textContent = "\u21F2"; // ⇲
-  // Don't let a click on the ⇲ button initiate a drag on the header.
-  collapseBtn.addEventListener("pointerdown", (e) => {
-    e.stopPropagation();
-  });
-  header.appendChild(collapseBtn);
-
-  root.appendChild(header);
-
-  // --- Body (match reason + reply preview) -------------------------------
-  const body = document.createElement("section");
-  body.className = "twh-card-body";
-
-  const matchReason = document.createElement("div");
-  matchReason.className = "twh-card-match-reason";
-  matchReason.dataset["testid"] = "twh-card-match-reason";
-  matchReason.textContent = options.candidate.matchReason;
-  body.appendChild(matchReason);
-
-  const replyPreview = document.createElement("div");
-  replyPreview.className = "twh-card-reply-preview";
-  replyPreview.dataset["testid"] = "twh-card-reply-preview";
-  replyPreview.textContent = options.candidate.suggestedReply;
-  body.appendChild(replyPreview);
-
-  root.appendChild(body);
-
-  // --- Footer (5 action icons) ------------------------------------------
-  const footer = document.createElement("footer");
-  footer.className = "twh-card-actions";
-
-  const actions: ReadonlyArray<{
-    action: string;
-    testId: string;
-    label: string;
-    glyph: string;
-    primary?: boolean;
-  }> = [
-    {
-      action: "fill",
-      testId: "twh-card-fill",
-      label: "Fill reply",
-      glyph: "\u270D\uFE0F",
-      primary: true,
-    },
-    {
-      action: "quote",
-      testId: "twh-card-quote",
-      label: "Quote reply",
-      glyph: "\uD83D\uDCAC",
-    },
-    {
-      action: "save",
-      testId: "twh-card-save",
-      label: "Save for later",
-      glyph: "\uD83D\uDD16",
-    },
-    {
-      action: "regen",
-      testId: "twh-card-regen",
-      label: "Regenerate",
-      glyph: "\uD83D\uDD04",
-    },
-    {
-      action: "dismiss",
-      testId: "twh-card-dismiss",
-      label: "Dismiss",
-      glyph: "\uD83D\uDC4E",
-    },
-  ];
-
-  for (const a of actions) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = a.primary
-      ? "twh-card-action twh-card-primary"
-      : "twh-card-action";
-    btn.dataset["action"] = a.action;
-    btn.dataset["testid"] = a.testId;
-    btn.setAttribute("aria-label", a.label);
-    btn.title = a.label;
-    btn.textContent = a.glyph;
-    footer.appendChild(btn);
-  }
-
-  root.appendChild(footer);
-  ensureCardFallbackStyles();
-  return root;
+    const root = document.createElement("div");
+    root.id = CARD_ID;
+    root.setAttribute("role", "region");
+    root.setAttribute("aria-label", "Wingman-X Card");
+    root.classList.add("twh-card-default");
+    root.dataset["tweetId"] = options.tweetId;
+    const header = document.createElement("header");
+    header.className = "twh-card-header";
+    header.dataset["testid"] = "twh-card-header";
+    header.dataset["testid"] = "twh-card-drag-handle";
+    header.setAttribute("aria-label", "Drag Wingman-X Card");
+    const grip = document.createElement("span");
+    grip.className = "twh-card-grip";
+    grip.textContent = "\u22EE\u22EE";
+    grip.setAttribute("aria-hidden", "true");
+    header.appendChild(grip);
+    const title = document.createElement("span");
+    title.className = "twh-card-title";
+    title.textContent = "Wingman-X";
+    header.appendChild(title);
+    const collapseBtn = document.createElement("button");
+    collapseBtn.type = "button";
+    collapseBtn.className = "twh-card-action twh-card-collapse";
+    collapseBtn.dataset["action"] = "collapse";
+    collapseBtn.dataset["testid"] = "twh-card-collapse";
+    collapseBtn.setAttribute("aria-label", "Collapse to dock");
+    collapseBtn.title = "Collapse to dock";
+    collapseBtn.textContent = "\u21F2";
+    collapseBtn.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+    });
+    header.appendChild(collapseBtn);
+    root.appendChild(header);
+    const body = document.createElement("section");
+    body.className = "twh-card-body";
+    const matchReason = document.createElement("div");
+    matchReason.className = "twh-card-match-reason";
+    matchReason.dataset["testid"] = "twh-card-match-reason";
+    matchReason.textContent = options.candidate.matchReason;
+    body.appendChild(matchReason);
+    const replyPreview = document.createElement("div");
+    replyPreview.className = "twh-card-reply-preview";
+    replyPreview.dataset["testid"] = "twh-card-reply-preview";
+    replyPreview.textContent = options.candidate.suggestedReply;
+    body.appendChild(replyPreview);
+    root.appendChild(body);
+    const footer = document.createElement("footer");
+    footer.className = "twh-card-actions";
+    const actions: ReadonlyArray<{
+        action: string;
+        testId: string;
+        label: string;
+        glyph: string;
+        primary?: boolean;
+    }> = [
+        {
+            action: "fill",
+            testId: "twh-card-fill",
+            label: "Fill reply",
+            glyph: "\u270D\uFE0F",
+            primary: true,
+        },
+        {
+            action: "quote",
+            testId: "twh-card-quote",
+            label: "Quote reply",
+            glyph: "\uD83D\uDCAC",
+        },
+        {
+            action: "save",
+            testId: "twh-card-save",
+            label: "Save for later",
+            glyph: "\uD83D\uDD16",
+        },
+        {
+            action: "regen",
+            testId: "twh-card-regen",
+            label: "Regenerate",
+            glyph: "\uD83D\uDD04",
+        },
+        {
+            action: "dismiss",
+            testId: "twh-card-dismiss",
+            label: "Dismiss",
+            glyph: "\uD83D\uDC4E",
+        },
+    ];
+    for (const a of actions) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = a.primary
+            ? "twh-card-action twh-card-primary"
+            : "twh-card-action";
+        btn.dataset["action"] = a.action;
+        btn.dataset["testid"] = a.testId;
+        btn.setAttribute("aria-label", a.label);
+        btn.title = a.label;
+        btn.textContent = a.glyph;
+        footer.appendChild(btn);
+    }
+    root.appendChild(footer);
+    ensureCardFallbackStyles();
+    return root;
 }
-
 function ensureCardFallbackStyles(): void {
-  if (document.getElementById("twh-card-fallback-styles") !== null) return;
-  const style = document.createElement("style");
-  style.id = "twh-card-fallback-styles";
-  style.textContent = CARD_FALLBACK_CSS;
-  document.head.appendChild(style);
+    if (document.getElementById("twh-card-fallback-styles") !== null)
+        return;
+    const style = document.createElement("style");
+    style.id = "twh-card-fallback-styles";
+    style.textContent = CARD_FALLBACK_CSS;
+    document.head.appendChild(style);
 }
-
-/**
- * Fallback CSS kept in sync with src/content/content.css so the Card is
- * usable even if the manifest CSS is not loaded (tests running against
- * the raw JS). Animation rules live in the stylesheet — this fallback
- * handles layout + colour only.
- */
 const CARD_FALLBACK_CSS = `
 #twh-card {
   position: fixed;

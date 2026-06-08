@@ -23,7 +23,7 @@ const OUT: string = OUT_ARG;
 mkdirSync(OUT, { recursive: true });
 
 const tmpStateDir = mkdtempSync(join(tmpdir(), "cp02-evidence-"));
-process.env.WINMAN_X_STATE_DIR = tmpStateDir;
+process.env.WINGMAN_X_STATE_DIR = tmpStateDir;
 
 const app = await buildServer({ port: 53827 });
 

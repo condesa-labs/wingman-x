@@ -53,7 +53,7 @@ const TweetUrlSchema = z
  *
  * This schema deliberately duplicates the daemon's schema rather than
  * importing from the daemon package. Reasons:
- *   1. `@winman-x/agent-kit` is what agents import. We want it to
+ *   1. `@wingman-x/agent-kit` is what agents import. We want it to
  *      be a small, self-contained typed surface — pulling in the
  *      daemon's Fastify deps as a transitive would bloat agents.
  *   2. The integration test round-trips the shape through the real

@@ -1,6 +1,6 @@
 ---
 name: discover-twitter-candidates
-description: Discover Twitter candidates and draft voice-matched replies using the user's ~/.winman-x/kb/ tone + library, then POST them to the local daemon via @winman-x/agent-kit.
+description: Discover Twitter candidates and draft voice-matched replies using the user's ~/.wingman-x/kb/ tone + library, then POST them to the local daemon via @wingman-x/agent-kit.
 ---
 
 # Discover Twitter Candidates

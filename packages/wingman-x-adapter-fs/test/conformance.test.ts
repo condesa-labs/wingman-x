@@ -1,12 +1,12 @@
 import { resolve } from "node:path";
-import { runConformanceTests } from "@winman-x/adapter-test-kit";
+import { runConformanceTests } from "@wingman-x/adapter-test-kit";
 import { describe, expect, it } from "vitest";
 
 import { configSchema, createAdapter, type FsConfig } from "../src/index.js";
 
 const fixturesRoot = resolve(import.meta.dirname, "fixtures");
 
-describe("@winman-x/adapter-fs conformance", () => {
+describe("@wingman-x/adapter-fs conformance", () => {
   runConformanceTests<FsConfig>({
     createAdapter,
     configSchema,

@@ -11,7 +11,7 @@ import {
   type LibraryEntry,
   type ToneResult,
   type WingmanXConfig,
-} from "@winman-x/kb-contract";
+} from "@wingman-x/kb-contract";
 import {
   createKBCache,
   type KBCache,
@@ -29,7 +29,7 @@ export const DEFAULT_KB_CACHE_TTL_SECONDS = 900;
 const DEFAULT_CONFIG: WingmanXConfig = {
   version: 1,
   adapter: {
-    package: "@winman-x/adapter-fs",
+    package: "@wingman-x/adapter-fs",
     name: "adapter-fs",
     config: {},
   },

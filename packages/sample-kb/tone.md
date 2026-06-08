@@ -1,7 +1,7 @@
 # Tone Guide (illustrative sample)
 
 > This is an **illustrative** sample knowledge base shipped in
-> `packages/sample-kb/`. Copy it to `~/.winman-x/kb/` and edit
+> `packages/sample-kb/`. Copy it to `~/.wingman-x/kb/` and edit
 > it to match your own voice before running discovery against your
 > real account.
 
@@ -42,12 +42,17 @@
 - No claims I cannot back up.
 - No emoji. (Personal preference — override this in your own copy if
   emoji are part of your voice.)
+- No contrastive sentence patterns: 不是X而是Y, X而非Y, 不在X在Y, or
+  any 让步-戳穿 (concede-then-puncture) structure. These are AI tells
+  — rewrite as a direct statement instead.
 
 ## Length
 
-- Target 60–180 characters. Hard cap 280.
-- If I need more than 280 chars I should publish a thread and link
-  it, not cram the reply.
+- Target 30–80 characters. 1–2 short sentences max. Hard cap 140.
+- Real humans on Twitter don't write paragraphs in replies. One quick
+  thought, said casually, then done.
+- If you can't fit your point in 2 sentences, you're trying to say too
+  much — pick the single best point.
 
 ## Example good reply
 

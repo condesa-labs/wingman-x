@@ -1,9 +1,9 @@
-# Getting Started — WinMan-X
+# Getting Started — Wingman-X
 
 End-to-end walkthrough: from a fresh clone to your first AI-drafted,
 human-reviewed reply filled into Twitter's native composer.
 
-> WinMan-X is deliberately split into three local components:
+> Wingman-X is deliberately split into three local components:
 > a **daemon** (Node service), a **Chrome extension**, and an **agent kit**
 > any MCP-capable LLM host (Claude Code / Codex / Gemini CLI / …) can drive.
 > Nothing talks to the cloud — the knowledge base is a local directory
@@ -14,7 +14,7 @@ human-reviewed reply filled into Twitter's native composer.
 ## How the pieces fit together
 
 Before installing anything, it helps to see what each step is wiring up.
-The whole system runs on your own machine; there is no WinMan-X server:
+The whole system runs on your own machine; there is no Wingman-X server:
 
 ```
                            +------------------------+
@@ -54,7 +54,7 @@ The whole system runs on your own machine; there is no WinMan-X server:
 - **Agent** — any MCP-capable LLM host. Reads your knowledge base,
   drafts voice-matched replies, POSTs them to the daemon. Plug in
   Claude Code, Codex CLI, Gemini CLI, or any host that can call
-  `@winman-x/agent-kit`.
+  `@wingman-x/agent-kit`.
 - **Knowledge base** — *not* a fixed directory. It is whatever an
   adapter exposes. The shipped default reads markdown from a local
   folder, so an Obsidian vault works out-of-the-box. Notion / Feishu
@@ -68,7 +68,7 @@ extension, then KB, then agent.
 
 ## Prerequisites
 
-WinMan-X is currently documented for **macOS**. You need four things
+Wingman-X is currently documented for **macOS**. You need four things
 on the machine before cloning the repo. Install with [Homebrew](https://brew.sh):
 
 ### Required toolchain
@@ -103,7 +103,7 @@ The agent side is intentionally pluggable. Install **one** of:
 
 Each host needs a **browser-automation MCP** registered:
 `chrome-devtools` MCP is the primary; Playwright MCP is an equivalent
-fallback. Follow your host's docs to add the MCP — WinMan-X does not
+fallback. Follow your host's docs to add the MCP — Wingman-X does not
 care which one, only that *some* MCP can drive a Chrome window.
 
 ### Twitter / X account
@@ -121,8 +121,8 @@ Once the prerequisites above are in place, the actual install is one
 command:
 
 ```bash
-git clone <your-fork-of-this-repo> winman-x
-cd winman-x
+git clone <your-fork-of-this-repo> wingman-x
+cd wingman-x
 npm install
 ```
 
@@ -138,7 +138,7 @@ The daemon is the only component that persists state; the extension and
 the agent both talk to it over HTTP on localhost.
 
 ```bash
-npm --workspace @winman-x/daemon run dev
+npm --workspace @wingman-x/daemon run dev
 ```
 
 You should see a line like:
@@ -167,7 +167,7 @@ Leave this process running in its own terminal.
 
 ```bash
 # In a second terminal
-npm --workspace @winman-x/extension run build
+npm --workspace @wingman-x/extension run build
 ```
 
 That compiles `packages/extension/src/**` into `packages/extension/dist/`.
@@ -178,7 +178,7 @@ Then, in Chrome:
 2. Toggle **Developer mode** on (top-right).
 3. Click **Load unpacked** and pick
    `packages/extension/dist/` from this repo.
-4. You should see **WinMan-X** in the list with a Service Worker
+4. You should see **Wingman-X** in the list with a Service Worker
    status of "active". No icon badge appears until the daemon replies
    with at least one candidate.
 
@@ -202,17 +202,17 @@ discovery loop to learn:
 
 ### KB is pluggable — pick a source
 
-WinMan-X does **not** lock you into one format. The agent talks to KB
+Wingman-X does **not** lock you into one format. The agent talks to KB
 through a small adapter contract (`KBAdapter`, defined in
 [`packages/wingman-x-kb-contract`](../packages/wingman-x-kb-contract)).
 The repo ships two reference adapters; community adapters are welcome:
 
 | Adapter | Reads from | Status |
 |--|--|--|
-| `@winman-x/adapter-fs` | A local directory of markdown files (`tone.md`, `library/*.md`, optional `handles.md`) | **Shipped** (default fallback) |
-| `@winman-x/adapter-obsidian` | An Obsidian vault, with configurable file/folder names and optional wiki-link following | **Shipped** |
-| `@winman-x/adapter-notion` | A Notion database / page tree | **Wanted — open for PRs** |
-| `@winman-x/adapter-feishu` | A Feishu (Lark) wiki space or document | **Wanted — open for PRs** |
+| `@wingman-x/adapter-fs` | A local directory of markdown files (`tone.md`, `library/*.md`, optional `handles.md`) | **Shipped** (default fallback) |
+| `@wingman-x/adapter-obsidian` | An Obsidian vault, with configurable file/folder names and optional wiki-link following | **Shipped** |
+| `@wingman-x/adapter-notion` | A Notion database / page tree | **Wanted — open for PRs** |
+| `@wingman-x/adapter-feishu` | A Feishu (Lark) wiki space or document | **Wanted — open for PRs** |
 
 Pick the option that matches where your voice notes already live:
 
@@ -242,7 +242,7 @@ cat > ~/.wingman-x/config.json <<'JSON'
 {
   "version": 1,
   "adapter": {
-    "package": "@winman-x/adapter-obsidian",
+    "package": "@wingman-x/adapter-obsidian",
     "name": "adapter-obsidian",
     "config": {
       "vaultPath": "/Users/you/Obsidian/MyVault",
@@ -277,7 +277,7 @@ want the adapter to walk `[[wikilinks]]` while reading; default is
 
 > **Don't want vault-aware behaviour?** You can also point the FS
 > adapter (Option A) at any subfolder of your vault by setting
-> `"adapter.package": "@winman-x/adapter-fs"` and
+> `"adapter.package": "@wingman-x/adapter-fs"` and
 > `"config.rootPath": "/path/to/vault/subfolder"`. That treats the
 > folder as plain markdown — wiki-links and properties are ignored
 > but won't break anything.
@@ -315,7 +315,7 @@ The chain is:
    adapter package, validates the inner config with the adapter's
    own `configSchema`, and starts serving cached reads from
    `~/.wingman-x/cache/<adapter-name>/`.
-3. The agent uses the loader (via `@winman-x/agent-kit`) to fetch
+3. The agent uses the loader (via `@wingman-x/agent-kit`) to fetch
    tone / library / handles whenever it drafts a reply.
 
 If the config file does not exist, the loader falls back to the FS
@@ -342,7 +342,7 @@ The ready-made skill is at
 
 Follow [`docs/agent-workflow.md`](./agent-workflow.md) step-by-step.
 The workflow doc is intentionally agent-agnostic — every hosts talks
-to the daemon through the same `@winman-x/agent-kit` TypeScript
+to the daemon through the same `@wingman-x/agent-kit` TypeScript
 client, so the prompt structure and tool calls are identical.
 
 When discovery completes, the agent will have POSTed one or more
@@ -355,7 +355,7 @@ state directory.
 
 ## 5. Complete one reply cycle
 
-1. **Click the WinMan-X extension icon** (or the pinned
+1. **Click the Wingman-X extension icon** (or the pinned
    browser-action). The popup lists every candidate the daemon
    currently holds, with a category pill (🟩 selected, 🟥 dismissed).
 2. **Click a candidate card** — the popup opens the tweet in a new
