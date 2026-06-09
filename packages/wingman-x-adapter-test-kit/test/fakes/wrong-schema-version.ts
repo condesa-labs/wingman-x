@@ -1,4 +1,4 @@
-import type { KBAdapter } from "@winman-x/kb-contract";
+import type { KBAdapter } from "@wingman-x/kb-contract";
 import { z } from "zod";
 
 export const configSchema = z.object({

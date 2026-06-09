@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { TextDecoder } from "node:util";
-import { serializeHandles, type HandleSet, type HandleTier } from "@winman-x/kb-contract";
+import { serializeHandles, type HandleSet, type HandleTier } from "@wingman-x/kb-contract";
 
 export interface MigrateTwitterHelperKBOptions {
   sourceDir?: string;

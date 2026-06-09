@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { KBAdapterError } from "@winman-x/kb-contract";
+import { KBAdapterError } from "@wingman-x/kb-contract";
 import {
   CACHE_SCHEMA_VERSION,
   createKBCache,

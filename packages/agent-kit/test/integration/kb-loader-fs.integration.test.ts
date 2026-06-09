@@ -42,7 +42,7 @@ describe("KB loader fs integration", () => {
     writeWingmanConfig(stateDir, {
       version: 1,
       adapter: {
-        package: "@winman-x/adapter-fs",
+        package: "@wingman-x/adapter-fs",
         name: "adapter-fs",
         config: { rootPath },
       },

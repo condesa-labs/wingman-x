@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "WinMan-X",
+  "name": "Wingman-X",
   "version": "0.2.0",
   "description": "Obsidian-powered, human-in-the-loop reply assistant for Twitter / X.",
   "permissions": ["storage", "alarms", "notifications"],
@@ -43,7 +43,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "WinMan-X"
+    "default_title": "Wingman-X"
   },
   "web_accessible_resources": [
     {

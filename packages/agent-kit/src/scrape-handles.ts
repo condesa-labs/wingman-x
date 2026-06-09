@@ -1,4 +1,4 @@
-import type { HandleSet } from "@winman-x/kb-contract";
+import type { HandleSet } from "@wingman-x/kb-contract";
 
 export function selectScrapeHandles(handleSet: HandleSet): string[] {
   const selected: string[] = [];

@@ -10,7 +10,7 @@ function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-describe("@winman-x/adapter-obsidian package scaffold", () => {
+describe("@wingman-x/adapter-obsidian package scaffold", () => {
   it("is registered as a workspace with the exact dependency shape", () => {
     const rootPackageJson = readJson(resolve(repoRoot, "package.json")) as {
       workspaces?: string[];
@@ -22,7 +22,7 @@ describe("@winman-x/adapter-obsidian package scaffold", () => {
 
     const manifest = readJson(manifestPath);
     expect(manifest).toMatchObject({
-      name: "@winman-x/adapter-obsidian",
+      name: "@wingman-x/adapter-obsidian",
       private: true,
       version: "0.1.0",
       type: "module",
@@ -42,11 +42,11 @@ describe("@winman-x/adapter-obsidian package scaffold", () => {
       },
     });
     expect((manifest as { dependencies?: Record<string, string> }).dependencies).toEqual({
-      "@winman-x/kb-contract": "*",
+      "@wingman-x/kb-contract": "*",
       zod: "^4.3.6",
     });
     expect((manifest as { devDependencies?: Record<string, string> }).devDependencies).toEqual({
-      "@winman-x/adapter-test-kit": "*",
+      "@wingman-x/adapter-test-kit": "*",
     });
   });
 
@@ -92,7 +92,7 @@ describe("@winman-x/adapter-obsidian package scaffold", () => {
       [
         "--input-type=module",
         "--eval",
-        "console.log(import.meta.resolve('@winman-x/adapter-obsidian'))",
+        "console.log(import.meta.resolve('@wingman-x/adapter-obsidian'))",
       ],
       {
         cwd: repoRoot,
@@ -103,9 +103,9 @@ describe("@winman-x/adapter-obsidian package scaffold", () => {
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toMatch(
-      /(?:node_modules\/@winman-x\/adapter-obsidian|packages\/wingman-x-adapter-obsidian)\/dist\/index\.js$/,
+      /(?:node_modules\/@wingman-x\/adapter-obsidian|packages\/wingman-x-adapter-obsidian)\/dist\/index\.js$/,
     );
-    expect(realpathSync(resolve(repoRoot, "node_modules/@winman-x/adapter-obsidian"))).toBe(
+    expect(realpathSync(resolve(repoRoot, "node_modules/@wingman-x/adapter-obsidian"))).toBe(
       packageRoot,
     );
   });

@@ -22,8 +22,8 @@ export const STATE_FILE_NAME = "state.json";
  *   tests to avoid clobbering `~/.wingman-x/state.json`).
  * - Otherwise, default to `~/.wingman-x`.
  *
- * This env var is shared with the KB layer (`@winman-x/adapter-fs`
- * and `@winman-x/agent-kit`) so a single value controls where the
+ * This env var is shared with the KB layer (`@wingman-x/adapter-fs`
+ * and `@wingman-x/agent-kit`) so a single value controls where the
  * daemon's `state.json` and the KB cache live.
  */
 export function resolveStateDir(): string {

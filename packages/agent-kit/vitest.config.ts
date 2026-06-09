@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 
 /**
- * Vitest config for @winman-x/agent-kit.
+ * Vitest config for @wingman-x/agent-kit.
  *
  * Coverage is scoped strictly to `src/**`. The integration test spawns a
  * real daemon child process, but the daemon's source files live in a

@@ -1,4 +1,4 @@
-import type { AdapterModule, KBAdapter } from "@winman-x/kb-contract";
+import type { AdapterModule, KBAdapter } from "@wingman-x/kb-contract";
 import { describe, expect, it } from "vitest";
 
 import * as adapterFs from "../src/index.js";

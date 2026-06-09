@@ -36,7 +36,7 @@ function closeAll(servers: Server[]): Promise<void> {
  * race-conflict. The DEFAULT_PORT_RANGE constant test asserts the
  * production value; every bind-exercise test uses TEST_RANGE.
  *
- * Base 59800 chosen empirically — above WinMan-X's range, below
+ * Base 59800 chosen empirically — above Wingman-X's range, below
  * the ephemeral port range (typically 49152–65535 but the upper end is
  * usually free for listen on macOS and Linux at test time).
  */

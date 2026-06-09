@@ -42,7 +42,7 @@ function optionsFrom(module: FakeModule): RunConformanceTestsOptions {
   };
 }
 
-describe("@winman-x/adapter-test-kit package scaffold", () => {
+describe("@wingman-x/adapter-test-kit package scaffold", () => {
   it("is registered as a workspace with the expected manifest shape", () => {
     const rootPackageJson = readJson(resolve(repoRoot, "package.json")) as {
       workspaces?: string[];
@@ -54,7 +54,7 @@ describe("@winman-x/adapter-test-kit package scaffold", () => {
 
     const manifest = readJson(manifestPath);
     expect(manifest).toMatchObject({
-      name: "@winman-x/adapter-test-kit",
+      name: "@wingman-x/adapter-test-kit",
       private: true,
       type: "module",
       main: "dist/index.js",
@@ -67,13 +67,13 @@ describe("@winman-x/adapter-test-kit package scaffold", () => {
       },
       files: ["dist", "src"],
       dependencies: {
-        "@winman-x/kb-contract": "*",
+        "@wingman-x/kb-contract": "*",
         zod: "^4.3.6",
         vitest: "^2.1.8",
       },
     });
     expect((manifest as { dependencies?: Record<string, string> }).dependencies).toEqual({
-      "@winman-x/kb-contract": "*",
+      "@wingman-x/kb-contract": "*",
       zod: "^4.3.6",
       vitest: "^2.1.8",
     });
@@ -121,7 +121,7 @@ describe("@winman-x/adapter-test-kit package scaffold", () => {
       [
         "--input-type=module",
         "--eval",
-        "console.log(import.meta.resolve('@winman-x/adapter-test-kit'))",
+        "console.log(import.meta.resolve('@wingman-x/adapter-test-kit'))",
       ],
       {
         cwd: repoRoot,
@@ -132,9 +132,9 @@ describe("@winman-x/adapter-test-kit package scaffold", () => {
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toMatch(
-      /(?:node_modules\/@winman-x\/adapter-test-kit|packages\/wingman-x-adapter-test-kit)\/dist\/index\.js$/,
+      /(?:node_modules\/@wingman-x\/adapter-test-kit|packages\/wingman-x-adapter-test-kit)\/dist\/index\.js$/,
     );
-    expect(realpathSync(resolve(repoRoot, "node_modules/@winman-x/adapter-test-kit"))).toBe(
+    expect(realpathSync(resolve(repoRoot, "node_modules/@wingman-x/adapter-test-kit"))).toBe(
       packageRoot,
     );
   });

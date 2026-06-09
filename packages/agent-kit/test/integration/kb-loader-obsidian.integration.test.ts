@@ -48,7 +48,7 @@ describe("KB loader Obsidian integration", () => {
     writeWingmanConfig(stateDir, {
       version: 1,
       adapter: {
-        package: "@winman-x/adapter-obsidian",
+        package: "@wingman-x/adapter-obsidian",
         name: "adapter-obsidian",
         config: { vaultPath },
       },

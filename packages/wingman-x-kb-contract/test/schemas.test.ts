@@ -108,7 +108,7 @@ describe("CP02 Zod schemas", () => {
       config.parse({
         version: 1,
         adapter: {
-          package: "@winman-x/adapter.fs_1",
+          package: "@wingman-x/adapter.fs_1",
           name: "adapter-fs",
           config: { root: "/tmp/kb" },
         },

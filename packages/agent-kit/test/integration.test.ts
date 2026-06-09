@@ -15,7 +15,7 @@ import {
  * `createDaemonClient()`, and assert the end-to-end shape.
  *
  * Design choices:
- *   - We launch the daemon the same way `npm --workspace @winman-x/daemon run dev`
+ *   - We launch the daemon the same way `npm --workspace @wingman-x/daemon run dev`
  *     does: `tsx bin/dev.ts`. That IS the CP01 launcher. We deliberately
  *     avoid spawning `dist/bin/dev.js` because the daemon's `tsc` build
  *     doesn't copy `package.json` into `dist/` (a latent CP01 wart —
@@ -36,7 +36,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * We launch the daemon via `tsx` on `bin/dev.ts` — the same launcher
- * `npm --workspace @winman-x/daemon run dev` uses. The daemon's
+ * `npm --workspace @wingman-x/daemon run dev` uses. The daemon's
  * tsconfig.build.json now emits a flat `dist/` layout, but the
  * integration test keeps using tsx so agent-kit never depends on the
  * daemon having been rebuilt.

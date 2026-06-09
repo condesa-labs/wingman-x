@@ -1,8 +1,8 @@
 {
-  "name": "@winman-x/daemon",
+  "name": "@wingman-x/daemon",
   "private": true,
   "version": "0.1.6",
-  "description": "Local companion daemon for WinMan-X.",
+  "description": "Local companion daemon for Wingman-X.",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {

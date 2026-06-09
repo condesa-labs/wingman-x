@@ -10,7 +10,7 @@ import {
   type LibraryContent,
   type LibraryEntry,
   type ToneResult,
-} from "@winman-x/kb-contract";
+} from "@wingman-x/kb-contract";
 
 import type { FsConfig } from "./config.js";
 import { resolveRootPath } from "./config.js";

@@ -10,7 +10,7 @@ function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-describe("@winman-x/kb-contract package scaffold", () => {
+describe("@wingman-x/kb-contract package scaffold", () => {
   it("is registered as a workspace with the expected library manifest shape", () => {
     const rootPackageJson = readJson(resolve(repoRoot, "package.json")) as {
       workspaces?: string[];
@@ -22,7 +22,7 @@ describe("@winman-x/kb-contract package scaffold", () => {
 
     const manifest = readJson(manifestPath);
     expect(manifest).toMatchObject({
-      name: "@winman-x/kb-contract",
+      name: "@wingman-x/kb-contract",
       private: true,
       type: "module",
       main: "dist/index.js",
@@ -85,7 +85,7 @@ describe("@winman-x/kb-contract package scaffold", () => {
       [
         "--input-type=module",
         "--eval",
-        "console.log(import.meta.resolve('@winman-x/kb-contract'))",
+        "console.log(import.meta.resolve('@wingman-x/kb-contract'))",
       ],
       {
         cwd: repoRoot,
@@ -96,9 +96,9 @@ describe("@winman-x/kb-contract package scaffold", () => {
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toMatch(
-      /(?:node_modules\/@winman-x\/kb-contract|packages\/wingman-x-kb-contract)\/dist\/index\.js$/,
+      /(?:node_modules\/@wingman-x\/kb-contract|packages\/wingman-x-kb-contract)\/dist\/index\.js$/,
     );
-    expect(realpathSync(resolve(repoRoot, "node_modules/@winman-x/kb-contract"))).toBe(
+    expect(realpathSync(resolve(repoRoot, "node_modules/@wingman-x/kb-contract"))).toBe(
       packageRoot,
     );
   });

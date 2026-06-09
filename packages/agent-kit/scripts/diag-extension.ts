@@ -112,7 +112,7 @@ function log(s: string) {
       log(`  FAILED: ${(err as Error).message}`);
     }
 
-    // 5) If a SW exists for WinMan-X, probe /health from within it
+    // 5) If a SW exists for Wingman-X, probe /health from within it
     log("\n=== fetch /health from extension background (if present) ===");
     const thSw = sws.find((sw) => /twitter[-_ ]?helper|chrome-extension/i.test(sw.url()));
     if (thSw) {
