@@ -129,6 +129,7 @@ describe("integration: agent-kit against real daemon", () => {
         match_reason: "test",
         match_category: "topic" as const,
         kb_refs: ["library/sample.md"],
+        ai_tell_flags: ["里程碑"],
       },
       {
         id: "uuid-int-2",
@@ -159,6 +160,13 @@ describe("integration: agent-kit against real daemon", () => {
     const byId = new Map(list.map((c) => [c.tweet_id, c]));
     expect(byId.get(TWEET_ID_1)?.suggested_reply).toBe("integration test reply 1");
     expect(byId.get(TWEET_ID_2)?.match_category).toBe("selected");
+    // CP01 schema-drift guard: an `ai_tell_flags` value POSTed by the agent
+    // must survive the daemon round-trip verbatim. The daemon strips unknown
+    // keys via `{...input}` + `CandidateSchema.parse`, so this only passes if
+    // the daemon's mirrored schema also carries the field.
+    expect(byId.get(TWEET_ID_1)?.ai_tell_flags).toEqual(["里程碑"]);
+    // A candidate POSTed WITHOUT the field must not gain one (proves optional).
+    expect(byId.get(TWEET_ID_2)?.ai_tell_flags).toBeUndefined();
     // Server-managed fields must be present and look ISO-8601-ish.
     for (const c of list) {
       expect(c.status).toBe("pending");
