@@ -112,6 +112,13 @@ html, body {
   word-wrap: break-word;
 }
 
+/* CP03: AI-tell warning marker — only rendered when ai_tell_flags is
+   non-empty, so it adds no layout for the common (unflagged) card. */
+.twh-ai-tell {
+  font-style: normal;
+  cursor: help;
+}
+
 .twh-card-buttons {
   display: flex;
   justify-content: flex-end;

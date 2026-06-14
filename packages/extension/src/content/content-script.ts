@@ -381,6 +381,7 @@ function installSoftNavigationHook(): void {
 function extractCandidateView(payload: unknown): {
   matchReason: string;
   suggestedReply: string;
+  aiTellFlags?: string[];
 } {
   if (payload === null || typeof payload !== "object") {
     return { matchReason: "", suggestedReply: "" };
@@ -394,7 +395,20 @@ function extractCandidateView(payload: unknown): {
     typeof record["suggested_reply"] === "string"
       ? (record["suggested_reply"] as string)
       : "";
-  return { matchReason, suggestedReply };
+  // CP03: carry the optional `ai_tell_flags` through to the Card view so
+  // the expanded Card can surface the ⚠️ indicator. tsc would NOT flag an
+  // omission here (an object literal that drops an optional field still
+  // type-checks) — the in-page E2E ⚠️ assertion is the forcing function.
+  const rawFlags = record["ai_tell_flags"];
+  const aiTellFlags =
+    Array.isArray(rawFlags) && rawFlags.every((x) => typeof x === "string")
+      ? (rawFlags as string[])
+      : undefined;
+  return {
+    matchReason,
+    suggestedReply,
+    ...(aiTellFlags !== undefined ? { aiTellFlags } : {}),
+  };
 }
 
 installSoftNavigationHook();

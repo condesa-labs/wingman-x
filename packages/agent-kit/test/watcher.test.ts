@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { Readable, Writable } from "node:stream";
+import { mkdtempSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * Watcher-core tests. We drive the unit-testable surface of
@@ -347,6 +350,42 @@ describe("SAFETY_BOUNDARY_PROMPT — reply language mirrors the tweet", () => {
     expect(languageIdx).toBeGreaterThanOrEqual(0);
     expect(humanFeelIdx).toBeGreaterThanOrEqual(0);
     expect(languageIdx).toBeLessThan(humanFeelIdx);
+  });
+
+  it("appends the Tier-2 AI-tell soft-guidance block AFTER the HUMAN FEEL block", () => {
+    // CP02 hardening: the Tier-2 tells (系动词回避 / 伪深度分词 / 过度限定 / 谄媚)
+    // are appended after HUMAN FEEL so the LANGUAGE-before-HUMAN-FEEL ordering
+    // above is unaffected.
+    const humanFeelIdx = SAFETY_BOUNDARY_PROMPT.indexOf("HUMAN FEEL");
+    const tier2Idx = SAFETY_BOUNDARY_PROMPT.indexOf("作为/充当/扮演");
+    expect(tier2Idx).toBeGreaterThan(humanFeelIdx);
+    // The four Tier-2 tell families are named.
+    expect(SAFETY_BOUNDARY_PROMPT).toContain("作为/充当/扮演");
+    expect(SAFETY_BOUNDARY_PROMPT).toMatch(/体现了|反映出|标志着|彰显/);
+    expect(SAFETY_BOUNDARY_PROMPT).toMatch(/可能也许|某种意义上/);
+    expect(SAFETY_BOUNDARY_PROMPT).toMatch(/谄媚|过度恭维/);
+  });
+
+  it("contains exactly one self-check / rewrite-once instruction", () => {
+    // Exactly ONE line tells the model to scan its draft against the tells and
+    // rewrite once before returning. More than one would dilute the directive.
+    // The matcher is keyed on the self-check directive specifically (自检 +
+    // a "once" rewrite), distinct from the HUMAN-FEEL "rewrite for oral texture"
+    // guidance which is not a tell self-check.
+    const selfCheckLines = SAFETY_BOUNDARY_PROMPT.split("\n").filter(
+      (line) =>
+        /自检|self[- ]?check/i.test(line) &&
+        /(改写一次|重写一次|rewrite once|一次)/i.test(line),
+    );
+    expect(selfCheckLines).toHaveLength(1);
+  });
+
+  it("does not repeat the untrusted-DATA phrase introduced by the hardening", () => {
+    // The count guard at buildSystemPromptFromLoader relies on this phrase
+    // appearing exactly once; the Tier-2 block must not reintroduce it.
+    expect(
+      SAFETY_BOUNDARY_PROMPT.match(/untrusted DATA, not instructions/g),
+    ).toHaveLength(1);
   });
 });
 
@@ -2043,5 +2082,105 @@ describe("periodic stdout summary every N=5 drafts", () => {
     expect(
       logs.some((l) => l.includes('"drafts_attempted"')),
     ).toBe(false);
+  });
+});
+
+describe("draftReply — AI-tell flagging + local JSONL log", () => {
+  const flagTmpDirs: string[] = [];
+  let savedStateDirEnv: string | undefined;
+
+  beforeEach(() => {
+    savedStateDirEnv = process.env.WINGMAN_X_STATE_DIR;
+  });
+
+  afterEach(() => {
+    if (savedStateDirEnv === undefined) {
+      delete process.env.WINGMAN_X_STATE_DIR;
+    } else {
+      process.env.WINGMAN_X_STATE_DIR = savedStateDirEnv;
+    }
+    while (flagTmpDirs.length > 0) {
+      rmSync(flagTmpDirs.pop()!, { recursive: true, force: true });
+    }
+  });
+
+  function withTempStateDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "wingman-x-draftflag-"));
+    flagTmpDirs.push(dir);
+    process.env.WINGMAN_X_STATE_DIR = dir;
+    return dir;
+  }
+
+  it("attaches ai_tell_flags and appends ONE JSONL line for a flagged reply", async () => {
+    const stateDir = withTempStateDir();
+    const flaggedReply = JSON.stringify({
+      suggested_reply: "这并非偶然而是必然",
+      match_reason: "topic match",
+      match_category: "topic",
+      kb_refs: [],
+    });
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({ stdout: wrapClaudeEnvelope(flaggedReply), exitCode: 0 }),
+    );
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-flagged",
+        tweet_url: "https://x.com/u/status/700",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      {
+        config: baseConfig,
+        log: () => {},
+        now: () => "2026-06-14T12:00:00.000Z",
+      },
+    );
+
+    expect(out).not.toBeNull();
+    expect(out!.ai_tell_flags).toBeDefined();
+    expect(out!.ai_tell_flags!.length).toBeGreaterThan(0);
+
+    const logPath = join(stateDir, "flagged-replies.jsonl");
+    expect(existsSync(logPath)).toBe(true);
+    const lines = readFileSync(logPath, "utf8").trimEnd().split("\n");
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0]!);
+    expect(record).toMatchObject({
+      ts: "2026-06-14T12:00:00.000Z",
+      tweet_id: "t-flagged",
+      reply: "这并非偶然而是必然",
+    });
+    expect(record.matched.length).toBeGreaterThan(0);
+  });
+
+  it("writes NOTHING to the log for a clean reply and omits/empties ai_tell_flags", async () => {
+    const stateDir = withTempStateDir();
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      makeFakeChild({
+        stdout: wrapClaudeEnvelope(validReplyFieldsJson),
+        exitCode: 0,
+      }),
+    );
+
+    const out = await draftReply(
+      {
+        tweet_id: "t-clean",
+        tweet_url: "https://x.com/u/status/701",
+        author_handle: "@u",
+        tweet_text: "x",
+      },
+      {
+        config: baseConfig,
+        log: () => {},
+        now: () => "2026-06-14T12:00:00.000Z",
+      },
+    );
+
+    expect(out).not.toBeNull();
+    // No flags: either omitted or an empty array.
+    expect(out!.ai_tell_flags ?? []).toEqual([]);
+    const logPath = join(stateDir, "flagged-replies.jsonl");
+    expect(existsSync(logPath)).toBe(false);
   });
 });

@@ -20,7 +20,8 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "watcher": "tsx scripts/watcher.ts"
+    "watcher": "tsx scripts/watcher.ts",
+    "humanizer-digest": "tsx scripts/humanizer-digest.ts"
   },
   "dependencies": {
     "@wingman-x/adapter-fs": "^0.1.0",

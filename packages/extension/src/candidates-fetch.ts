@@ -26,6 +26,13 @@ export interface RawCandidate {
    * bump. The status filter logic lives in `./candidate-filter.ts`.
    */
   status: string;
+  /**
+   * AI-tell terms the agent matched in `suggested_reply` (CP01 contract,
+   * optional `string[]`). Read-only on the extension side — surfaced as a
+   * ⚠️ indicator wherever the reply renders. Absent/empty means no flags;
+   * the indicator renders nothing in that (common) case.
+   */
+  ai_tell_flags?: string[];
 }
 
 interface CandidatesResponseBody {
