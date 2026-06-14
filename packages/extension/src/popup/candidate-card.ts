@@ -58,6 +58,20 @@ export function renderCard(
   const replyPreview = document.createElement("div");
   replyPreview.className = "twh-reply-preview";
   replyPreview.textContent = truncate(candidate.suggested_reply, PREVIEW_MAX);
+  // CP03: when the agent flagged AI-tell terms in the reply, append a ⚠️
+  // marker with the matched terms in title/aria-label. A candidate WITHOUT
+  // flags renders nothing extra (no layout shift for the common case).
+  const aiTellFlags = candidate.ai_tell_flags;
+  if (aiTellFlags !== undefined && aiTellFlags.length > 0) {
+    const warn = document.createElement("span");
+    warn.className = "twh-ai-tell";
+    warn.setAttribute("data-testid", "twh-popup-ai-tell");
+    warn.textContent = "⚠️"; // ⚠️
+    const terms = `AI tell: ${aiTellFlags.join(", ")}`;
+    warn.title = terms;
+    warn.setAttribute("aria-label", terms);
+    replyPreview.append(" ", warn);
+  }
 
   const footer = document.createElement("footer");
   footer.className = "twh-card-buttons";

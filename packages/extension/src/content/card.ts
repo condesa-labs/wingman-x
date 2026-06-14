@@ -8,6 +8,13 @@ const CARD_DEFAULT_OFFSET_TOP = 96;
 export interface CardCandidateView {
     matchReason: string;
     suggestedReply: string;
+    /**
+     * AI-tell terms the agent matched in the reply (CP01 contract).
+     * Read-only here — when non-empty, the expanded Card shows a ⚠️ next
+     * to the reply with the matched terms in its title/aria-label. Absent
+     * or empty renders nothing (no layout shift for the common case).
+     */
+    aiTellFlags?: string[];
 }
 export interface CardOptions {
     tweetId: string;
@@ -127,6 +134,17 @@ function buildCardElement(options: CardOptions): HTMLElement {
     replyPreview.dataset["testid"] = "twh-card-reply-preview";
     replyPreview.textContent = options.candidate.suggestedReply;
     body.appendChild(replyPreview);
+    const aiTellFlags = options.candidate.aiTellFlags;
+    if (aiTellFlags !== undefined && aiTellFlags.length > 0) {
+        const warn = document.createElement("span");
+        warn.className = "twh-card-ai-tell";
+        warn.dataset["testid"] = "twh-card-ai-tell";
+        warn.textContent = "⚠️";
+        const terms = `AI tell: ${aiTellFlags.join(", ")}`;
+        warn.title = terms;
+        warn.setAttribute("aria-label", terms);
+        body.appendChild(warn);
+    }
     root.appendChild(body);
     const footer = document.createElement("footer");
     footer.className = "twh-card-actions";
@@ -254,6 +272,14 @@ const CARD_FALLBACK_CSS = `
   color: #f7f9f9;
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* CP03: AI-tell warning marker — rendered only when aiTellFlags is
+   non-empty, so the common (unflagged) Card has no extra layout. */
+#twh-card .twh-card-ai-tell {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 13px;
+  cursor: help;
 }
 #twh-card .twh-card-actions {
   display: flex;
