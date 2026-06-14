@@ -70,6 +70,10 @@ export const CandidateInputSchema = z.object({
   match_reason: z.string(),
   match_category: MatchCategorySchema,
   source: CandidateSourceSchema.default("handles"),
+  // Detector tells (CP02 is the sole producer): zero or more high-precision
+  // AI-phrasing flags found in `suggested_reply`. Optional on input; when
+  // present must be a `string[]`. The daemon stores and returns it verbatim.
+  ai_tell_flags: z.array(z.string()).optional(),
   kb_refs: z.array(z.string()).optional(),
   created_at: z.string().datetime().optional(),
   status: StatusSchema.optional(),

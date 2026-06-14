@@ -111,6 +111,11 @@ export const CandidateInputSchema = z.object({
   match_reason: z.string(),
   match_category: z.enum(["selected", "topic", "trending", "explore"]),
   source: CandidateSourceSchema.default("handles"),
+  // Detector tells (CP02 is the sole producer): optional high-precision
+  // AI-phrasing flags. Mirrors agent-kit's CandidateInputSchema so the field
+  // survives the `{...input}` + CandidateSchema.parse round-trip in
+  // mergeCandidate (server.ts) and is returned verbatim by GETs.
+  ai_tell_flags: z.array(z.string()).optional(),
   kb_refs: z.array(z.string()).default([]),
   created_at: z.string().datetime().optional(),
   status: StatusEnum.optional(),
