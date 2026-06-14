@@ -44,8 +44,8 @@ describe("parseFlaggedReplies", () => {
     ].join("\n");
     const out = parseFlaggedReplies(text);
     expect(out).toHaveLength(2);
-    expect(out[0].tweet_id).toBe("100");
-    expect(out[1].matched).toEqual(["hedging"]);
+    expect(out[0]?.tweet_id).toBe("100");
+    expect(out[1]?.matched).toEqual(["hedging"]);
   });
 
   it("skips blank lines between valid records", () => {
@@ -91,7 +91,7 @@ describe("parseFlaggedReplies", () => {
       reply: "r",
       matched: ["hype", 7, null, "hedging"],
     });
-    expect(parseFlaggedReplies(text)[0].matched).toEqual(["hype", "hedging"]);
+    expect(parseFlaggedReplies(text)[0]?.matched).toEqual(["hype", "hedging"]);
   });
 });
 
@@ -164,6 +164,14 @@ describe("renderDigest", () => {
     expect(hypeIdx).toBeLessThan(hedgingIdx);
     expect(md).toContain("| hype | 2 |");
     expect(md).toContain("3 flagged repl"); // total flagged replies
+  });
+
+  it("uses singular wording for a single reply and a single pattern", () => {
+    const md = renderDigest(line({ tweet_id: "1", reply: "里程碑", matched: ["hype"] }));
+    expect(md).toContain("1 flagged reply across 1 pattern.");
+    // Summary line must not pluralize for a count of 1.
+    expect(md).not.toContain("1 flagged replies");
+    expect(md).not.toContain("across 1 patterns");
   });
 
   it("includes a few example replies and sanitizes them to a single line", () => {
