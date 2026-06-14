@@ -109,7 +109,7 @@ describe("aggregateByPattern", () => {
     ];
     expect(aggregateByPattern(records)).toEqual([
       { label: "hedging", count: 3 },
-      { label: "hype", count: 1 },
+      { label: "hype", count: 2 },
     ]);
   });
 
