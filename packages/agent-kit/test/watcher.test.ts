@@ -369,8 +369,13 @@ describe("SAFETY_BOUNDARY_PROMPT — reply language mirrors the tweet", () => {
   it("contains exactly one self-check / rewrite-once instruction", () => {
     // Exactly ONE line tells the model to scan its draft against the tells and
     // rewrite once before returning. More than one would dilute the directive.
-    const selfCheckLines = SAFETY_BOUNDARY_PROMPT.split("\n").filter((line) =>
-      /自检|rewrite|重写/i.test(line) && /(改写|重写|rewrite|once|一次)/i.test(line),
+    // The matcher is keyed on the self-check directive specifically (自检 +
+    // a "once" rewrite), distinct from the HUMAN-FEEL "rewrite for oral texture"
+    // guidance which is not a tell self-check.
+    const selfCheckLines = SAFETY_BOUNDARY_PROMPT.split("\n").filter(
+      (line) =>
+        /自检|self[- ]?check/i.test(line) &&
+        /(改写一次|重写一次|rewrite once|一次)/i.test(line),
     );
     expect(selfCheckLines).toHaveLength(1);
   });

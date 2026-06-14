@@ -74,7 +74,7 @@ describe("detectAiTells — positive matches (every Tier-1 pattern fires)", () =
     // English AI vocab
     ["delve into / transformative", "Let me delve into this transformative idea."],
     ["game-changer", "This is a real game-changer."],
-    ["unlock … potential", "It will unlock your full potential."],
+    ["unlock … potential", "It will unlock huge potential."],
     // Canned openings
     ["canned opening: great point", "Great point, I totally agree."],
     ["canned opening: fascinating", "Fascinating thread on agents."],

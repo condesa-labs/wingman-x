@@ -14,12 +14,15 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import {
   CandidateInputSchema,
   type CandidateInput,
   type CandidateSource,
 } from "./candidate.js";
+import { resolveWingmanXStateDir } from "./kb-paths.js";
 import type { KBLoader } from "./kb-loader.js";
 import type { SignalKind } from "./signal.js";
 
@@ -158,7 +161,89 @@ export const SAFETY_BOUNDARY_PROMPT = [
   "- Technical terms are fine, but sandwich them between casual/conversational language. Never stack jargon without breathing room.",
   "- Pick ONE point from the KB to develop. Do NOT compress 3 ideas into one reply.",
   "- If the reply reads like it could appear in a research report, rewrite it with more oral texture.",
+  "",
+  "AI-TELL AVOIDANCE (soft guidance — these phrasings read as machine-written; prefer concrete, plain alternatives):",
+  "- 系动词回避：少用 作为/充当/扮演…角色 这类自我定位的套话。",
+  "- 伪深度分词：避免 体现了/反映出/标志着/彰显 这类空泛的总结性动词。",
+  "- 过度限定：避免 可能也许/某种意义上 这类无信息量的对冲措辞。",
+  "- 谄媚/过度恭维：不要用空洞的恭维开场或一味附和。",
+  "- 自检：返回前对照上面这些 AI 腔调扫一遍草稿，命中就改写一次再返回。",
 ].join("\n");
+
+/**
+ * Tier-1 AI-tell patterns — the user-approved, high-precision set.
+ *
+ * These are the ONLY patterns the detector matches. Common single words
+ * (作为/体现/反映/是) are deliberately EXCLUDED here and live only in the
+ * Tier-2 prompt block above — they are too low-precision to flag
+ * mechanically. Each entry pairs a stable `label` (the value logged + the
+ * `ai_tell_flags` member) with the regex that detects it.
+ */
+export const AI_TELL_PATTERNS: ReadonlyArray<{ label: string; re: RegExp }> = [
+  { label: "contrastive-zh", re: /不是.{0,8}而是/ },
+  { label: "contrastive-zh", re: /并非.{0,8}而是/ },
+  { label: "contrastive-zh", re: /不在.{0,6}而在/ },
+  { label: "contrastive-zh", re: /而非/ },
+  { label: "contrastive-en", re: /\bnot\s+\w+,?\s+but\b/i },
+  { label: "contrastive-en", re: /it'?s not .+?,?\s*it'?s/i },
+  { label: "hype", re: /里程碑|划时代|颠覆性|革命性|跨时代|重磅/ },
+  { label: "hedging", re: /在一定程度上|某种程度上|在某种程度上|某种意义上/ },
+  { label: "ai-vocab-en", re: /delve into|transformative|game[- ]changer|let'?s explore/i },
+  { label: "ai-vocab-en", re: /unlock\w*\s+\w*\s*potential/i },
+  { label: "canned-opening", re: /^(great point|interesting take|love this|fascinating)/i },
+];
+
+/**
+ * Detect Tier-1 AI tells in a drafted reply.
+ *
+ * Pure: same input → same output, no I/O, no `Date`. Returns the matched
+ * labels deduped and in the stable order of `AI_TELL_PATTERNS` (multiple
+ * regexes can share a label, e.g. the four contrastive-zh variants — the
+ * label is emitted once). Never throws: empty, very-long, and non-ASCII
+ * inputs all return `[]`.
+ */
+export function detectAiTells(reply: string): string[] {
+  if (typeof reply !== "string" || reply.length === 0) return [];
+  const matched: string[] = [];
+  for (const { label, re } of AI_TELL_PATTERNS) {
+    if (matched.includes(label)) continue;
+    if (re.test(reply)) matched.push(label);
+  }
+  return matched;
+}
+
+/**
+ * One flagged-reply record appended to `<stateDir>/flagged-replies.jsonl`.
+ * `ts` is injected by the caller — the detector itself never reads `Date`.
+ */
+export interface FlaggedReplyRecord {
+  ts: string;
+  tweet_id: string;
+  reply: string;
+  matched: string[];
+  /** State dir override; defaults to the WINGMAN_X_STATE_DIR helper. */
+  stateDir?: string;
+}
+
+export const FLAGGED_REPLIES_LOG_FILE = "flagged-replies.jsonl";
+
+/**
+ * Append a single JSON line to the local flagged-replies log. Uses
+ * `appendFileSync` (atomic per-line append, no `$TMPDIR` rename dance) and
+ * `mkdir -p`s the state dir if absent. Local-only — no network, no secrets.
+ */
+export function appendFlaggedReply(record: FlaggedReplyRecord): void {
+  const stateDir = record.stateDir ?? resolveWingmanXStateDir();
+  mkdirSync(stateDir, { recursive: true });
+  const line =
+    JSON.stringify({
+      ts: record.ts,
+      tweet_id: record.tweet_id,
+      reply: record.reply,
+      matched: record.matched,
+    }) + "\n";
+  appendFileSync(join(stateDir, FLAGGED_REPLIES_LOG_FILE), line, "utf8");
+}
 
 export async function buildSystemPromptFromLoader(
   loader: KBLoader,
@@ -481,12 +566,27 @@ function stripSingleMarkdownFence(text: string): string {
  * failure mode separately. On any failure we return `null` and the
  * caller does not POST the candidate.
  */
+/**
+ * Optional injected dependencies for `draftReply`. `now` supplies the
+ * timestamp written to the flag log so the pure logic never reads `Date`;
+ * `appendFlagged` lets tests intercept the JSONL write. Defaults are wired
+ * here, not in the detector.
+ */
+type DraftReplyCtx = {
+  config: WatcherConfig;
+  counters?: WatcherCounters;
+  log: (l: string) => void;
+  trackChild?: RunContext["trackChild"];
+  /** Injected clock for the flag-log `ts`. Defaults to ISO-8601 now. */
+  now?: () => string;
+  /** Injected flag-log appender (defaults to {@link appendFlaggedReply}). */
+  appendFlagged?: (record: FlaggedReplyRecord) => void;
+};
+
 export async function draftReply(
   tweet: ScrapedTweet,
-  systemPromptOrCtx:
-    | string
-    | { config: WatcherConfig; counters?: WatcherCounters; log: (l: string) => void; trackChild?: RunContext["trackChild"] },
-  maybeCtx?: { config: WatcherConfig; counters?: WatcherCounters; log: (l: string) => void; trackChild?: RunContext["trackChild"] },
+  systemPromptOrCtx: string | DraftReplyCtx,
+  maybeCtx?: DraftReplyCtx,
 ): Promise<CandidateInput | null> {
   const systemPrompt = typeof systemPromptOrCtx === "string"
     ? systemPromptOrCtx
@@ -654,6 +754,34 @@ export async function draftReply(
     return null;
   }
 
+  // Detector runs on the validated reply text. Flags are attached to the
+  // candidate (omitted when none) and a JSONL line is appended only when
+  // there is at least one match. The detector is pure; the timestamp and
+  // the appender are injected so this stays deterministic under test.
+  const aiTellFlags = detectAiTells(replyFields.data.suggested_reply);
+  if (aiTellFlags.length > 0) {
+    const append = ctx.appendFlagged ?? appendFlaggedReply;
+    const ts = (ctx.now ?? (() => new Date().toISOString()))();
+    try {
+      append({
+        ts,
+        tweet_id: tweet.tweet_id,
+        reply: replyFields.data.suggested_reply,
+        matched: aiTellFlags,
+      });
+    } catch (err) {
+      // Logging is best-effort — a failed local write must not drop the
+      // candidate. Surface it as a structured line and continue.
+      log(
+        JSON.stringify({
+          event: "flag_log_failed",
+          tweet_id: tweet.tweet_id,
+          message: (err as Error).message ?? String(err),
+        }),
+      );
+    }
+  }
+
   const candidate = CandidateInputSchema.safeParse({
     id: `candidate-${tweet.tweet_id}`,
     tweet_id: tweet.tweet_id,
@@ -662,6 +790,7 @@ export async function draftReply(
     tweet_text: tweet.tweet_text,
     source: tweet.source ?? "handles",
     ...replyFields.data,
+    ...(aiTellFlags.length > 0 ? { ai_tell_flags: aiTellFlags } : {}),
   });
   if (!candidate.success) {
     if (counters) counters.drafted_failed_zod += 1;
