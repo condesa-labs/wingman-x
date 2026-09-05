@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { NormalizedPost } from "../../model/post.js";
 import type { LLMProvider } from "../../llm/provider.js";
 import { SAFETY_PREAMBLE, renderPost } from "../prompts.js";
+import { mapWithConcurrency } from "../../util/concurrency.js";
 
 /**
  * Stage 2 — theme classification with the cheap model. Posts are batched
@@ -21,12 +22,19 @@ const BatchSchema = z.object({
   results: z.array(ThemeResultSchema.extend({ tweet_id: z.string() })),
 });
 
-export function buildThemeSystemPrompt(themes: readonly string[]): string {
+export function buildThemeSystemPrompt(themes: readonly string[], conversationalThemes: readonly string[] = []): string {
+  const conv = conversationalThemes.filter((c) => themes.some((t) => t.toLowerCase() === c.toLowerCase()));
   return [
     "You are a strict relevance classifier for one specific person's X (Twitter) feed.",
     "The person cares about these themes:",
     ...themes.map((t) => `- ${t}`),
     "",
+    ...(conv.length > 0
+      ? [
+          `Conversational themes (a different lane, no expertise involved): ${conv.join("; ")}. A post fits one of these when a person makes a real observation, joke, or take about technology, startups, or internet life. Link dumps, announcements without a take, and engagement bait are NOT relevant there. If a post fits both a conversational theme and any other theme, choose the other theme: expertise wins on overlap.`,
+          "",
+        ]
+      : []),
     "For each post decide whether it SUBSTANTIVELY engages with one of these themes — an argument, a claim, a question, a data point, an announcement with real content. Classify by meaning, not keywords: a post about a bank piloting settlement on a shared ledger is about Securities infrastructure / Settlement even if it never says 'tokenization' or 'RWA'.",
     "",
     "Scoring (theme_score, 0-100):",
@@ -53,10 +61,18 @@ export type ThemeOutcome =
 
 export async function classifyThemes(
   posts: NormalizedPost[],
-  deps: { llm: LLMProvider; themes: readonly string[]; batchSize: number; log?: (l: string) => void },
+  deps: {
+    llm: LLMProvider;
+    themes: readonly string[];
+    conversationalThemes?: readonly string[];
+    batchSize: number;
+    /** Batches in flight at once. Defaults to 1 (sequential). */
+    concurrency?: number;
+    log?: (l: string) => void;
+  },
 ): Promise<Map<string, ThemeOutcome>> {
   const out = new Map<string, ThemeOutcome>();
-  const system = buildThemeSystemPrompt(deps.themes);
+  const system = buildThemeSystemPrompt(deps.themes, deps.conversationalThemes ?? []);
   const batches: NormalizedPost[][] = [];
   for (let i = 0; i < posts.length; i += deps.batchSize) batches.push(posts.slice(i, i + deps.batchSize));
 
@@ -88,18 +104,15 @@ export async function classifyThemes(
     return missing;
   }
 
-  let batchNo = 0;
-  for (const batch of batches) {
-    batchNo += 1;
-    const missing = await runBatch(batch, `theme:batch-${batchNo}`);
-    for (const p of missing) {
-      // Single-post retry so one confused batch answer doesn't cost the
-      // whole group; a second failure becomes an explicit error.
-      const still = await runBatch([p], `theme:retry-${p.tweet_id}`);
-      for (const s of still) {
-        out.set(s.tweet_id, { ok: false, error: "theme classification failed" });
-      }
-    }
+  // Batches run in parallel up to the concurrency limit; 200 posts in
+  // batches of 16 is 13 calls, which sequentially was the slowest part of
+  // the whole scan. Single-post retries for anything a batch left out.
+  const limit = Math.max(1, deps.concurrency ?? 1);
+  const missingPerBatch = await mapWithConcurrency(batches, limit, (batch, i) => runBatch(batch, `theme:batch-${i + 1}`));
+  const missing = missingPerBatch.flat();
+  const stillMissing = await mapWithConcurrency(missing, limit, (p) => runBatch([p], `theme:retry-${p.tweet_id}`));
+  for (const s of stillMissing.flat()) {
+    out.set(s.tweet_id, { ok: false, error: "theme classification failed" });
   }
   return out;
 }

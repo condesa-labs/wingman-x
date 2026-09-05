@@ -1,0 +1,100 @@
+[
+  {
+    "type": "tweet",
+    "id": "2001000000000000001",
+    "url": "https://x.com/creditpm/status/2001000000000000001",
+    "twitterUrl": "https://twitter.com/creditpm/status/2001000000000000001",
+    "text": "Hot take: tokenized private credit is stuck until there is real secondary liquidity. Nobody wants to hold a token they can't sell.",
+    "retweetCount": 12,
+    "replyCount": 9,
+    "likeCount": 140,
+    "quoteCount": 3,
+    "bookmarkCount": 20,
+    "viewCount": 15400,
+    "createdAt": "Thu Sep 03 15:10:00 +0000 2026",
+    "lang": "en",
+    "isReply": false,
+    "isRetweet": false,
+    "isQuote": false,
+    "author": { "userName": "creditpm", "name": "Credit PM", "isVerified": true, "followers": 12000 }
+  },
+  {
+    "type": "tweet",
+    "id": "2001000000000000002",
+    "url": "https://x.com/infra_alice/status/2001000000000000002",
+    "text": "Our bank just finished a settlement pilot on a shared ledger. Cash leg still settles at the custodian though.",
+    "retweetCount": 4,
+    "replyCount": 2,
+    "likeCount": 55,
+    "viewCount": 4000,
+    "createdAt": "Thu Sep 03 18:40:00 +0000 2026",
+    "lang": "en",
+    "isReply": false,
+    "isRetweet": false,
+    "isQuote": true,
+    "quote": {
+      "id": "2000000000000000099",
+      "text": "Shared ledgers will make T+0 the default.",
+      "author": { "userName": "ledgerfan" }
+    },
+    "author": { "userName": "infra_alice", "name": "Alice Infra" }
+  },
+  {
+    "type": "tweet",
+    "id": "2001000000000000003",
+    "url": "https://x.com/creditpm/status/2001000000000000003",
+    "text": "@someone yes exactly, that's what I meant",
+    "createdAt": "Thu Sep 03 16:00:00 +0000 2026",
+    "isReply": true,
+    "inReplyToId": "2001000000000000000",
+    "isRetweet": false,
+    "author": { "userName": "creditpm", "name": "Credit PM" }
+  },
+  {
+    "type": "tweet",
+    "id": "2001000000000000004",
+    "url": "https://x.com/infra_alice/status/2001000000000000004",
+    "text": "RT @ledgerfan: Shared ledgers will make T+0 the default.",
+    "createdAt": "Thu Sep 03 12:00:00 +0000 2026",
+    "isRetweet": true,
+    "author": { "userName": "infra_alice" }
+  },
+  {
+    "type": "tweet",
+    "id": "2001000000000000005",
+    "url": "https://x.com/macro_mike/status/2001000000000000005",
+    "text": "The Fed will cut twice before year end. Bonds are screaming it. #macro #rates",
+    "createdAt": "Thu Sep 03 19:00:00 +0000 2026",
+    "likeCount": 900,
+    "author": { "userName": "macro_mike", "name": "Macro Mike" }
+  },
+  {
+    "type": "tweet",
+    "id": "2001000000000000006",
+    "url": "https://x.com/macro_mike/status/2001000000000000006",
+    "text": "GIVEAWAY: join my telegram for the airdrop, whitelist closes tonight!! #crypto #airdrop #free #web3",
+    "createdAt": "Thu Sep 03 19:30:00 +0000 2026",
+    "author": { "userName": "macro_mike" }
+  },
+  {
+    "type": "tweet",
+    "id": "2001000000000000007",
+    "url": "https://x.com/creditpm/status/2001000000000000007",
+    "text": "Old post from last week about card receivables.",
+    "createdAt": "Mon Aug 24 10:00:00 +0000 2026",
+    "author": { "userName": "creditpm" }
+  },
+  { "type": "mock_tweet", "id": "-1" },
+  {
+    "handle": "feedbot",
+    "name": "Feed Bot",
+    "text": "Simple feed scraper shape with no id field but a url.",
+    "url": "https://x.com/feedbot/status/2001000000000000008",
+    "createdAt": "2026-09-03T20:00:00.000Z",
+    "likes": "1,200",
+    "retweets": 3,
+    "replies": 1,
+    "isRetweet": false,
+    "isReply": false
+  }
+]

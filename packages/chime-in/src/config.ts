@@ -47,7 +47,14 @@ export const ConfigSchema = z.object({
   themeThreshold: z.number().min(0).max(100).default(60),
   expertiseThreshold: z.number().min(0).max(100).default(70),
   contributionThreshold: z.number().min(0).max(100).default(70),
-  maxCandidatesPerScan: z.number().int().min(0).default(6),
+  /** Optional ceiling on drafted expertise candidates per scan. 0 (default) means no cap: everything above the thresholds is drafted and the person decides. */
+  maxCandidatesPerScan: z.number().int().min(0).default(0),
+  /** Themes routed to the conversational lane (no KB, line gate). Others are expertise. */
+  conversationalThemes: z.array(z.string()).default(["Technology and startups", "General and internet culture"]),
+  /** Conversational themes where priority-2 accounts need an exceptional line (+10). */
+  conversationalStrictThemes: z.array(z.string()).default(["General and internet culture"]),
+  conversationalThreshold: z.number().min(0).max(100).default(80),
+  maxConversationalCandidates: z.number().int().min(0).default(10),
   /** Rank bonus for priority-1 accounts (and penalty for priority-3). */
   priorityBoost: z.number().min(0).default(5),
 
@@ -66,6 +73,8 @@ export const ConfigSchema = z.object({
   chimeDir: z.string().min(1),
   daemonPort: z.number().int().positive().optional(),
   replyMaxChars: z.number().int().positive().default(280),
+  /** Drafts generated per candidate. 1 by default (♻️ goes to the model); set higher to pre-draft alternates served on ♻️ without a model call. */
+  draftVariants: z.number().int().min(1).max(5).default(1),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
@@ -107,6 +116,12 @@ export function defaultChimeDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(resolveWingmanXStateDir(env), "chime-in");
 }
 
+function optList(v: string | undefined): string[] | undefined {
+  if (v === undefined) return undefined;
+  const items = v.split(",").map((s) => s.trim()).filter(Boolean);
+  return items.length > 0 ? items : undefined;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const raw = compact({
     apifyToken: optString(env.APIFY_TOKEN),
@@ -124,6 +139,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     expertiseThreshold: optNumber(env.EXPERTISE_THRESHOLD),
     contributionThreshold: optNumber(env.CONTRIBUTION_THRESHOLD),
     maxCandidatesPerScan: optNumber(env.MAX_CANDIDATES_PER_SCAN),
+    conversationalThemes: optList(env.CONVERSATIONAL_THEMES),
+    conversationalStrictThemes: optList(env.CONVERSATIONAL_STRICT_THEMES),
+    conversationalThreshold: optNumber(env.CONVERSATIONAL_THRESHOLD),
+    maxConversationalCandidates: optNumber(env.MAX_CONVERSATIONAL_CANDIDATES),
     priorityBoost: optNumber(env.PRIORITY_BOOST),
     llmProvider: optString(env.LLM_PROVIDER),
     llmModelCheap: optString(env.LLM_MODEL_CHEAP),
@@ -136,6 +155,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     chimeDir: optString(env.CHIME_IN_DIR) ?? defaultChimeDir(env),
     daemonPort: optNumber(env.DAEMON_PORT),
     replyMaxChars: optNumber(env.REPLY_MAX_CHARS),
+    draftVariants: optNumber(env.DRAFT_VARIANTS),
   });
   return ConfigSchema.parse(raw);
 }

@@ -109,7 +109,7 @@ export const DAEMON_IDENTITY_HEADER = "x-twitter-helper-daemon";
  * other status a squatter might return, not just 200 with the wrong
  * body shape.
  */
-export function hasDaemonIdentityHeader(res: Response): boolean {
+export function hasDaemonIdentityHeader(res: { headers: { get(name: string): string | null } }): boolean {
   const value = res.headers.get(DAEMON_IDENTITY_HEADER);
   return typeof value === "string" && value.length > 0;
 }

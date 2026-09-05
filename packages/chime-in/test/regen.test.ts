@@ -64,16 +64,21 @@ describe("runRegen", () => {
       postCandidates: async (cs) => { posted.push(...cs); return { accepted: cs.length }; },
       log: silentLogger,
     });
-    expect(summary).toEqual({ requested: 1, regenerated: 1, failed: 0 });
-    expect(posted[0]).toMatchObject({ id: "chime-1", suggested_reply: "a meaningfully different draft", match_reason: candidate().match_reason, kb_refs: ["library/custody.md", "tone.md"] });
+    expect(summary).toEqual({ requested: 1, regenerated: 1, failed: 0, already_served: 0, served_from_alternates: 0, fills_recorded: 0 });
+    expect(posted[0]).toMatchObject({ id: "chime-1", suggested_reply: "A meaningfully different draft", match_reason: candidate().match_reason, kb_refs: ["library/custody.md", "tone.md"] });
     expect(prompts[0]).toContain("<rejected_draft n=\"1\">\nfirst draft");
-    expect(prompts[0]).toContain("Contribution angle: Custody is not solved for securities.");
+    expect(prompts[0]).toContain("What the reply should say: Custody is not solved for securities.");
     expect(prompts[0]).toContain("library/custody.md#control");
     expect(state.regen_handled["1"]).toBe("2026-09-04T01:00:00.000Z");
 
     // Same click again → nothing to do.
     const again = await runRegen({ config, llm, kb, candidateLog: log, state, getCandidates: async () => [candidate()], postCandidates: async () => { throw new Error("should not post"); }, log: silentLogger });
     expect(again.requested).toBe(0);
+    expect(again.already_served).toBe(1);
+    // --force redrafts the same click again.
+    const forced = await runRegen({ config, llm, kb, candidateLog: log, state, getCandidates: async () => [candidate()], postCandidates: async (cs) => ({ accepted: cs.length }), log: silentLogger, force: true });
+    expect(forced.requested).toBe(1);
+    expect(forced.regenerated).toBe(1);
   });
 
   it("uses the candidate log when present and counts failures without throwing", async () => {
@@ -96,8 +101,8 @@ describe("runRegen", () => {
     const llm = createFakeProvider(({ prompt }) => { prompts.push(prompt); throw new Error("model down"); });
     const state = { regen_handled: {} };
     const summary = await runRegen({ config, llm, kb, candidateLog: log, state, getCandidates: async () => [candidate()], postCandidates: async (cs) => ({ accepted: cs.length }), log: silentLogger });
-    expect(summary).toEqual({ requested: 1, regenerated: 0, failed: 1 });
-    expect(prompts[0]).toContain("Contribution angle: logged angle");
+    expect(summary).toEqual({ requested: 1, regenerated: 0, failed: 1, already_served: 0, served_from_alternates: 0, fills_recorded: 0 });
+    expect(prompts[0]).toContain("What the reply should say: logged angle");
     expect(state.regen_handled).toEqual({});
   });
 });

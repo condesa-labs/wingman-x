@@ -14,14 +14,18 @@ async function main(): Promise<void> {
     config: rt.config,
     llm: rt.llm,
     kb: rt.kb,
+    policy: rt.policy,
     candidateLog: rt.candidateLog,
     state: rt.state,
     getCandidates: () => daemon.client.getCandidates(),
     postCandidates: (cs) => daemon.client.postCandidates(cs),
     log: rt.log,
+    force: flags.force,
   });
   saveScanState(rt.paths.state, rt.state);
-  rt.log.info(`Regenerated ${regen.regenerated}/${regen.requested} (failed ${regen.failed})`);
+  rt.log.info(
+    `Regenerated ${regen.regenerated}/${regen.requested} (failed ${regen.failed}${regen.served_from_alternates > 0 ? `, ${regen.served_from_alternates} from pre-drafted alternates` : ""})${regen.already_served > 0 ? `, ${regen.already_served} already served` : ""}${regen.fills_recorded > 0 ? `, ${regen.fills_recorded} fill(s) recorded` : ""}`,
+  );
 }
 
 main().catch((err: unknown) => {

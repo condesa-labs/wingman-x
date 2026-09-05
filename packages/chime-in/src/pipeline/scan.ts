@@ -11,11 +11,13 @@ import type { Logger } from "../util/logger.js";
 import type { WatchAccount } from "../watchlist.js";
 import { toWingmanCandidate, type ScoredDraft } from "../wingman/candidate-map.js";
 import { rankCandidates } from "./rank.js";
-import { assessContribution } from "./stages/contribution.js";
-import { draftReply } from "./stages/draft.js";
+import { assessContribution, type ReplyDepth, type ReplyMove } from "./stages/contribution.js";
+import { draftReply, toSentenceCase } from "./stages/draft.js";
 import { assessExpertise, type ExpertiseOutcome } from "./stages/expertise.js";
 import { mechanicalFilter, type MechanicalReason } from "./stages/mechanical.js";
 import { classifyThemes, type ThemeResult } from "./stages/theme.js";
+import { assessLine } from "./stages/line.js";
+import { conversationalEligibility, laneForTheme, nextLineType, type LineType } from "./lane.js";
 
 /**
  * The scan orchestrator. Pure with respect to I/O — every side effect
@@ -33,6 +35,8 @@ export interface ScanDeps {
   llm: LLMProvider;
   kb: KBIndex;
   themes: readonly string[];
+  /** Conversational-lane reply policy (kb/conversational.md). Lane disabled when absent. */
+  policy?: string;
   processed: ProcessedStore;
   candidateLog: CandidateLog;
   /** `null` in dry-run: nothing is sent, nothing is marked processed. */
@@ -56,7 +60,7 @@ export interface PostOutcome {
   tweet_id: string;
   author_handle: string;
   tweet_url: string;
-  stage: "mechanical" | "theme" | "expertise" | "contribution" | "rank" | "draft" | "sent" | "error";
+  stage: "mechanical" | "theme" | "expertise" | "contribution" | "line" | "rank" | "draft" | "sent" | "error";
   decision: "filtered" | "candidate" | "error";
   reason?: string;
   theme?: string;
@@ -84,6 +88,7 @@ export interface ScanSummary {
   theme_candidates: number;
   expertise_candidates: number;
   contribution_candidates: number;
+  conversational_candidates: number;
   ranked_out: number;
   drafted: number;
   sent: number;
@@ -100,6 +105,10 @@ export interface ScanSummary {
     contribution_angle: string;
     suggested_reply: string;
     ai_tell_flags: string[];
+    move?: string;
+    depth?: string;
+    posture?: string;
+    lane?: string;
   }>;
   outcomes: PostOutcome[];
 }
@@ -115,7 +124,9 @@ export function buildEditorialMemory(log: CandidateLog, recent = 12): string {
     .slice(0, recent)
     .map((r) => r.replies[r.replies.length - 1])
     .filter((r): r is string => typeof r === "string" && r.length > 0);
-  return sent.map((r) => `- ${r.replace(/\s+/g, " ")}`).join("\n");
+  // Normalised to the current register so old lowercase replies do not
+  // anchor the model back into it.
+  return sent.map((r) => `- ${toSentenceCase(r.replace(/\s+/g, " "))}`).join("\n");
 }
 
 interface Scored {
@@ -126,6 +137,9 @@ interface Scored {
   contribution_score: number;
   contribution_angle: string;
   contribution_reason: string;
+  move: ReplyMove;
+  depth: ReplyDepth;
+  posture: string;
 }
 
 export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSummary> {
@@ -234,7 +248,9 @@ export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSu
   const themeOutcomes = await classifyThemes(admitted, {
     llm: deps.llm,
     themes: deps.themes,
+    conversationalThemes: deps.policy ? config.conversationalThemes : [],
     batchSize: config.themeBatchSize,
+    concurrency: config.llmConcurrency,
     log: (l) => log.debug(l),
   });
   const themed: Array<{ post: NormalizedPost; theme: ThemeResult }> = [];
@@ -256,12 +272,19 @@ export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSu
   }
   log.info(`${themed.length} theme candidates`);
 
+  // ---- Lane split ------------------------------------------------------
+  // Conversational themes skip the KB entirely; without a policy text the
+  // lane is off and everything goes through expertise as before.
+  const expertiseThemed = deps.policy ? themed.filter(({ theme }) => laneForTheme(theme.theme, config) === "expertise") : themed;
+  const conversationalThemed = deps.policy ? themed.filter(({ theme }) => laneForTheme(theme.theme, config) === "conversational") : [];
+  if (conversationalThemed.length > 0) log.info(`${conversationalThemed.length} routed to the conversational lane`);
+
   // ---- Stage 3: expertise --------------------------------------------
-  const expertiseResults = await mapWithConcurrency(themed, config.llmConcurrency, ({ post, theme }) =>
+  const expertiseResults = await mapWithConcurrency(expertiseThemed, config.llmConcurrency, ({ post, theme }) =>
     settle(assessExpertise(post, theme.theme, { llm: deps.llm, kb: deps.kb, topK: config.kbTopK })),
   );
   const expert: Array<{ post: NormalizedPost; theme: ThemeResult; expertise: ExpertiseOutcome }> = [];
-  themed.forEach(({ post, theme }, i) => {
+  expertiseThemed.forEach(({ post, theme }, i) => {
     const r = expertiseResults[i]!;
     if (!r.ok) {
       markError(post, "expertise", r.error.message);
@@ -301,11 +324,15 @@ export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSu
       return;
     }
     const scores = { theme: theme.theme_score, expertise: expertise.expertise_score, contribution: r.value.contribution_score };
-    if (r.value.contribution_score < config.contributionThreshold) {
+    // "none" is an explicit decision that nothing worth saying exists. It
+    // wins regardless of the score: no reply beats a manufactured one.
+    if (r.value.move === "none" || r.value.contribution_score < config.contributionThreshold) {
       markFiltered(
         post,
         "contribution",
-        `contribution ${r.value.contribution_score} < ${config.contributionThreshold}: ${r.value.reason}`,
+        r.value.move === "none"
+          ? `move none (${r.value.contribution_score}): ${r.value.reason}`
+          : `contribution ${r.value.contribution_score} < ${config.contributionThreshold}: ${r.value.reason}`,
         scores,
         {
           theme: theme.theme,
@@ -326,6 +353,10 @@ export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSu
       contribution_score: r.value.contribution_score,
       contribution_angle: r.value.contribution_angle,
       contribution_reason: r.value.reason,
+      move: r.value.move,
+      // A short post never earns a deep reply, whatever the model said.
+      depth: r.value.depth === "deep" && [...post.tweet_text].length < 100 ? "substantive" : r.value.depth,
+      posture: r.value.posture,
     });
   });
   log.info(`${scored.length} contribution candidates`);
@@ -360,12 +391,22 @@ export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSu
   if (rankedOut.length > 0) log.info(`${rankedOut.length} above threshold but ranked out by MAX_CANDIDATES_PER_SCAN`);
 
   // ---- Stage 5: draft ---------------------------------------------------
-  // Sequential on purpose: each draft sees the ones before it so a scan's
-  // candidates do not all make the same point.
+  // Drafts run in parallel. Cross-candidate variety comes from what is known
+  // before drafting: each draft sees the other candidates' angles (so the set
+  // does not make one point), and the nudges are derived from rank order.
   const editorial = buildEditorialMemory(deps.candidateLog);
-  const draftedSoFar: string[] = [];
-  const drafts = await mapWithConcurrency(selected, 1, async (s) => {
+  const angleOf = (s: Scored): string => `[@${s.post.author_handle}, ${s.move}] ${s.contribution_angle}`;
+  const drafts = await mapWithConcurrency(selected, config.llmConcurrency, async (s, i) => {
     const chunks = s.expertise.chunks.length > 0 ? s.expertise.chunks : s.expertise.retrieved.slice(0, 4);
+    const prev = selected[i - 1];
+    const prev2 = selected[i - 2];
+    // Soft variety: same move as the candidate ranked just above → vary the
+    // construction, never the move. Only the top-ranked reply may open by
+    // conceding. After two non-light replies in a row, ask for a short one
+    // unless this post is an argument that needs the room.
+    const avoidMoves: ReplyMove[] = prev !== undefined && prev.move === s.move ? [prev.move] : [];
+    const twoLongAbove = prev !== undefined && prev2 !== undefined && prev.depth !== "light" && prev2.depth !== "light";
+    const nudgeShort = twoLongAbove && s.depth !== "light" && !["argument", "technical_explanation"].includes(s.posture);
     const result = await settle(
       draftReply({
         post: s.post,
@@ -376,12 +417,50 @@ export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSu
         maxChars: config.replyMaxChars,
         constraints: deps.kb.constraints,
         editorial,
-        avoidPoints: [...draftedSoFar],
+        avoidPoints: selected.filter((o) => o !== s).map(angleOf),
+        move: s.move,
+        depth: s.depth,
+        posture: s.posture,
+        avoidMoves,
+        avoidConcedeOpener: i > 0,
+        ...(nudgeShort ? { lengthNudge: "short" as const } : {}),
         llm: deps.llm,
       }),
     );
-    if (result.ok) draftedSoFar.push(result.value.suggested_reply);
-    return result;
+    if (!result.ok) return result;
+    // Alternates: the same move, meaningfully different shape. Served on
+    // ♻️ without another model call, so the person sees a real choice.
+    const alternates: string[] = [];
+    for (let v = 1; v < config.draftVariants; v += 1) {
+      const alt = await settle(
+        draftReply({
+          post: s.post,
+          theme: s.theme.theme,
+          angle: s.contribution_angle,
+          chunks,
+          tone: deps.kb.tone,
+          maxChars: config.replyMaxChars,
+          constraints: deps.kb.constraints,
+          editorial,
+          avoidPoints: selected.filter((o) => o !== s).map(angleOf),
+          move: s.move,
+          depth: s.depth,
+          posture: s.posture,
+          previousReplies: [result.value.suggested_reply, ...alternates],
+          // The first alternate is always the short version, so the first ♻️
+          // click offers a one-liner rather than another paragraph.
+          ...(v === 1 ? { lengthNudge: "short" as const } : {}),
+          llm: deps.llm,
+        }),
+      );
+      if (!alt.ok) {
+        log.warn(`alternate draft ${v} failed for ${s.post.tweet_url}: ${alt.error.message}`);
+        continue;
+      }
+      const text = alt.value.suggested_reply;
+      if (text !== result.value.suggested_reply && !alternates.includes(text)) alternates.push(text);
+    }
+    return { ok: true as const, value: { ...result.value, alternates } };
   });
   const ready: ScoredDraft[] = [];
   selected.forEach((s, i) => {
@@ -403,6 +482,9 @@ export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSu
       kb_files: kbFiles,
       suggested_reply: d.value.suggested_reply,
       ai_tell_flags: d.value.ai_tell_flags,
+      move: s.move,
+      depth: s.depth,
+      posture: s.posture,
     });
     if (!opts.dryRun) {
       deps.candidateLog.upsert({
@@ -418,10 +500,137 @@ export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSu
         kb_refs: kbFiles,
         chunk_refs: chunks.map((c) => c.ref),
         replies: [d.value.suggested_reply],
+        moves: [s.move],
+        depth: s.depth,
+        posture: s.posture,
+        ...(d.value.alternates.length > 0 ? { alternates: d.value.alternates } : {}),
       });
     }
   });
   log.info(`${ready.length} replies drafted`);
+
+  // ---- Conversational lane ---------------------------------------------
+  // "Do I just have a good line here?" Author relevance earns entry, a
+  // higher bar than expertise, and a small cap so the Dock stays mostly
+  // professional. Three variants, each a different reply type.
+  const conversational: ScoredDraft[] = [];
+  if (conversationalThemed.length > 0 && deps.policy && config.maxConversationalCandidates > 0) {
+    const policy = deps.policy;
+    const eligible = conversationalThemed.filter(({ post, theme }) => {
+      const account = byHandle.get(post.author_handle.toLowerCase()) ?? { handle: post.author_handle, priority: 2 as const };
+      const e = conversationalEligibility(account.priority, theme.theme, config);
+      if (!e.eligible) markFiltered(post, "line", e.reason ?? "not eligible", { theme: theme.theme_score }, { theme: theme.theme, theme_score: theme.theme_score });
+      return e.eligible;
+    });
+    const lineResults = await mapWithConcurrency(eligible, config.llmConcurrency, ({ post, theme }) =>
+      settle(assessLine(post, theme.theme, { llm: deps.llm, policy, constraints: deps.kb.constraints })),
+    );
+    const good: Array<{ post: NormalizedPost; theme: ThemeResult; line: Awaited<ReturnType<typeof assessLine>>; priority: 1 | 2 | 3 }> = [];
+    eligible.forEach(({ post, theme }, i) => {
+      const r = lineResults[i]!;
+      if (!r.ok) {
+        markError(post, "line", r.error.message);
+        return;
+      }
+      const account = byHandle.get(post.author_handle.toLowerCase()) ?? { handle: post.author_handle, priority: 2 as const };
+      const bar = conversationalEligibility(account.priority, theme.theme, config).threshold;
+      if (r.value.line_type === "none" || r.value.line_score < bar) {
+        markFiltered(
+          post,
+          "line",
+          r.value.line_type === "none" ? `no line (${r.value.line_score}): ${r.value.reason}` : `line ${r.value.line_score} < ${bar}: ${r.value.reason}`,
+          { theme: theme.theme_score, contribution: r.value.line_score },
+          { theme: theme.theme, theme_score: theme.theme_score, contribution_score: r.value.line_score, contribution_angle: r.value.line },
+        );
+        return;
+      }
+      good.push({ post, theme, line: r.value, priority: account.priority });
+    });
+    good.sort((a, b) => b.line.line_score - a.line.line_score || Date.parse(b.post.created_at) - Date.parse(a.post.created_at));
+    const picked = good.slice(0, config.maxConversationalCandidates);
+    for (const g of good.slice(config.maxConversationalCandidates)) {
+      markFiltered(g.post, "rank", `ranked out (conversational cap ${config.maxConversationalCandidates})`, { theme: g.theme.theme_score, contribution: g.line.line_score }, { theme: g.theme.theme, theme_score: g.theme.theme_score, contribution_score: g.line.line_score, contribution_angle: g.line.line });
+    }
+    log.info(`${good.length} conversational candidates${good.length > picked.length ? ` (${picked.length} kept by cap)` : ""}`);
+    await mapWithConcurrency(picked, config.llmConcurrency, async (g) => {
+      const primaryType: LineType = g.line.line_type === "none" ? "light_reaction" : g.line.line_type;
+      const common = {
+        post: g.post,
+        theme: g.theme.theme,
+        angle: g.line.line,
+        chunks: [],
+        tone: deps.kb.tone,
+        maxChars: config.replyMaxChars,
+        constraints: deps.kb.constraints,
+        editorial,
+        lane: "conversational" as const,
+        policy,
+        energy: g.line.energy,
+        llm: deps.llm,
+      };
+      const primary = await settle(draftReply({ ...common, lineType: primaryType }));
+      if (!primary.ok) {
+        markError(g.post, "draft", primary.error.message);
+        return;
+      }
+      const alternates: string[] = [];
+      const usedTypes: string[] = [primaryType];
+      for (let v = 1; v < config.draftVariants; v += 1) {
+        const t = nextLineType(usedTypes);
+        usedTypes.push(t);
+        const alt = await settle(draftReply({ ...common, lineType: t, previousReplies: [primary.value.suggested_reply, ...alternates] }));
+        if (!alt.ok) {
+          log.warn(`alternate draft ${v} failed for ${g.post.tweet_url}: ${alt.error.message}`);
+          continue;
+        }
+        if (alt.value.suggested_reply !== primary.value.suggested_reply && !alternates.includes(alt.value.suggested_reply)) alternates.push(alt.value.suggested_reply);
+      }
+      const draft: ScoredDraft = {
+        post: g.post,
+        theme: g.theme.theme,
+        theme_score: g.theme.theme_score,
+        expertise_score: 0,
+        contribution_score: g.line.line_score,
+        contribution_angle: g.line.line,
+        account_priority: g.priority,
+        kb_files: [],
+        suggested_reply: primary.value.suggested_reply,
+        ai_tell_flags: primary.value.ai_tell_flags,
+        move: primaryType,
+        depth: "light",
+        posture: g.line.energy,
+        lane: "conversational",
+        line_type: primaryType,
+        energy: g.line.energy,
+      };
+      conversational.push(draft);
+      ready.push(draft);
+      if (!opts.dryRun) {
+        deps.candidateLog.upsert({
+          tweet_id: g.post.tweet_id,
+          recorded_at: now().toISOString(),
+          post: g.post,
+          theme: g.theme.theme,
+          theme_score: g.theme.theme_score,
+          expertise_score: 0,
+          contribution_score: g.line.line_score,
+          contribution_angle: g.line.line,
+          account_priority: g.priority,
+          kb_refs: [],
+          chunk_refs: [],
+          replies: [primary.value.suggested_reply],
+          moves: [primaryType],
+          depth: "light",
+          posture: g.line.energy,
+          lane: "conversational",
+          line_type: primaryType,
+          ...(alternates.length > 0 ? { alternates } : {}),
+        });
+      }
+    });
+    // Parallel completion order is arbitrary; keep the Dock order by score.
+    conversational.sort((a, b) => b.contribution_score - a.contribution_score);
+  }
 
   // ---- Send to Wingman -------------------------------------------------
   let sent = 0;
@@ -508,6 +717,7 @@ export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSu
     theme_candidates: themed.length,
     expertise_candidates: expert.length,
     contribution_candidates: scored.length,
+    conversational_candidates: conversational.length,
     ranked_out: rankedOut.length,
     drafted: ready.length,
     sent,
@@ -530,6 +740,10 @@ export async function runScan(deps: ScanDeps, opts: ScanOptions): Promise<ScanSu
       contribution_angle: r.contribution_angle,
       suggested_reply: r.suggested_reply,
       ai_tell_flags: r.ai_tell_flags,
+      ...(r.move !== undefined ? { move: r.move } : {}),
+      ...(r.depth !== undefined ? { depth: r.depth } : {}),
+      ...(r.posture !== undefined ? { posture: r.posture } : {}),
+      ...(r.lane !== undefined ? { lane: r.lane } : {}),
     })),
     outcomes,
   };

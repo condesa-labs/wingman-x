@@ -32,8 +32,10 @@ describe("rankCandidates", () => {
     expect(selected.map((s) => s.tweet_id)).toEqual(["x", "y", "z"]);
   });
 
-  it("a cap of zero yields no candidates (zero is a valid result)", () => {
-    expect(rankCandidates([item("a", 99, 99, 1)], { priorityBoost: 5, max: 0 }).selected).toEqual([]);
+  it("a cap of zero means no cap: everything ranks in, nothing ranks out", () => {
+    const r = rankCandidates([item("a", 99, 99, 1), item("b", 70, 70, 2), item("c", 80, 80, 3)], { priorityBoost: 5, max: 0 });
+    expect(r.selected.map((x) => x.tweet_id)).toEqual(["a", "c", "b"]);
+    expect(r.rankedOut).toEqual([]);
   });
 
   it("priorityAdjustment and rankScore", () => {

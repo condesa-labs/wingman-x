@@ -34,6 +34,7 @@ const report = (ok: boolean, to: string): void => {
 };
 
 report(copyIfMissing(join(seed, "tone.md"), join(kbDir, "tone.md")), join(kbDir, "tone.md"));
+report(copyIfMissing(join(seed, "conversational.md"), join(kbDir, "conversational.md")), join(kbDir, "conversational.md"));
 for (const f of readdirSync(join(seed, "library")).filter((n) => n.endsWith(".md"))) {
   report(copyIfMissing(join(seed, "library", f), join(kbDir, "library", f)), join(kbDir, "library", f));
 }

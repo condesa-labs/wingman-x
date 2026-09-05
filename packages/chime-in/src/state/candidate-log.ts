@@ -22,6 +22,18 @@ export const CandidateLogRecordSchema = z.object({
   /** Chunk refs (file#heading) used for drafting — used again for regen. */
   chunk_refs: z.array(z.string()),
   replies: z.array(z.string()),
+  /** Conversational move used for each entry in `replies` (parallel; optional for older records). */
+  moves: z.array(z.string()).optional(),
+  depth: z.string().optional(),
+  posture: z.string().optional(),
+  /** Pre-generated drafts not yet shown; served on ♻️ without a model call. */
+  alternates: z.array(z.string()).optional(),
+  /** What was live on the card when the person filled it: the only real preference signal. */
+  filled_reply: z.string().optional(),
+  filled_at: z.string().optional(),
+  /** "expertise" (default) or "conversational". */
+  lane: z.string().optional(),
+  line_type: z.string().optional(),
 });
 export type CandidateLogRecord = z.infer<typeof CandidateLogRecordSchema>;
 

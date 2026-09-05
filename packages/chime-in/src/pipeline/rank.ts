@@ -47,5 +47,7 @@ export function rankCandidates<T extends Rankable>(
     if (t !== 0) return t;
     return a.tweet_id.localeCompare(b.tweet_id);
   });
+  // max 0 means no cap: rank for display order only.
+  if (opts.max <= 0) return { selected: sorted, rankedOut: [] };
   return { selected: sorted.slice(0, opts.max), rankedOut: sorted.slice(opts.max) };
 }

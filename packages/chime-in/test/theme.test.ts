@@ -35,7 +35,9 @@ describe("classifyThemes", () => {
     expect(out.get("2")?.ok).toBe(true);
     expect(out.get("3")).toEqual({ ok: false, error: "theme classification failed" });
     expect(out.get("4")).toMatchObject({ ok: true, result: { relevant: false } });
-    expect(labels).toEqual(["theme:batch-1", "theme:retry-2", "theme:retry-3", "theme:batch-2"]);
+    // Batches run first (in parallel), then single-post retries for anything a batch left out.
+    expect(labels.slice(0, 2).sort()).toEqual(["theme:batch-1", "theme:batch-2"]);
+    expect(labels.slice(2).sort()).toEqual(["theme:retry-2", "theme:retry-3"]);
   });
 
   it("treats a thrown batch as all-missing and retries each post", async () => {

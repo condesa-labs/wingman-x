@@ -35,6 +35,7 @@ import {
   hasDaemonIdentityHeader,
   isDaemonSuggestionResponse,
 } from "../daemon-shape.js";
+import { daemonRequest, toResponseLike, type ResponseLike } from "./daemon-proxy.js";
 
 const LOG_PREFIX = "[twitter-helper]";
 
@@ -189,7 +190,7 @@ async function runOnce(): Promise<void> {
   // fresh port. The header check catches 404 / 5xx squatters that
   // body-shape validation alone wouldn't (review-loop f14).
   let port = firstPort;
-  let res: Response | null = await tryFetchSuggestion(port, tweetId, signal);
+  let res: ResponseLike | null = await tryFetchSuggestion(port, tweetId, signal);
   if (signal.aborted) return;
   if (res === null || !hasDaemonIdentityHeader(res)) {
     const fresh = (await requestInvalidatePort()).port;
@@ -323,21 +324,22 @@ async function tryFetchSuggestion(
   port: number,
   tweetId: string,
   signal: AbortSignal,
-): Promise<Response | null> {
-  try {
-    return await fetch(
-      `http://127.0.0.1:${port}/suggestion?tweet_id=${encodeURIComponent(tweetId)}`,
-      { method: "GET", signal },
-    );
-  } catch (err) {
-    if (signal.aborted) return null;
+): Promise<ResponseLike | null> {
+  // Proxied through the background worker: a direct fetch from the x.com
+  // page origin to 127.0.0.1 is blocked by Chrome's local-network
+  // restrictions (the popup works because it runs in the extension origin).
+  const result = await daemonRequest(
+    port,
+    `/suggestion?tweet_id=${encodeURIComponent(tweetId)}`,
+  );
+  if (signal.aborted) return null;
+  if (result.error !== undefined || result.status === 0) {
     console.info(
-      `${LOG_PREFIX} /suggestion fetch failed on port ${port} for ${tweetId}: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+      `${LOG_PREFIX} /suggestion fetch failed on port ${port} for ${tweetId}: ${result.error ?? "no response"}`,
     );
     return null;
   }
+  return toResponseLike(result);
 }
 
 

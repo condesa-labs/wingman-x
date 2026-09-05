@@ -205,6 +205,43 @@ async function clearBadge(): Promise<void> {
  * keeps the worker alive while the probe runs.
  */
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (isDaemonRequestMessage(message)) {
+    // Content scripts cannot fetch 127.0.0.1 from the x.com page origin
+    // (Chrome local-network restrictions), so they ask the worker — which
+    // holds the 127.0.0.1 host permission — to perform the request.
+    void (async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:${message.port}${message.path}`, {
+          method: message.method ?? "GET",
+          ...(message.body !== undefined
+            ? { headers: { "content-type": "application/json" }, body: JSON.stringify(message.body) }
+            : {}),
+        });
+        let body: unknown = null;
+        try {
+          body = await res.json();
+        } catch {
+          body = null;
+        }
+        sendResponse({
+          ok: res.ok,
+          status: res.status,
+          identity: res.headers.get("x-twitter-helper-daemon"),
+          body,
+        });
+      } catch (err) {
+        sendResponse({
+          ok: false,
+          status: 0,
+          identity: null,
+          body: null,
+          error: err instanceof Error ? err.message : "fetch_failed",
+        });
+      }
+    })();
+    return true;
+  }
+
   if (isGetPortMessage(message)) {
     void (async () => {
       try {
@@ -261,6 +298,25 @@ interface InvalidatePortMessage {
 
 interface RefreshCandidatesMessage {
   type: "refresh_candidates";
+}
+
+interface DaemonRequestMessage {
+  type: "daemon_request";
+  port: number;
+  path: string;
+  method?: "GET" | "POST";
+  body?: unknown;
+}
+
+function isDaemonRequestMessage(value: unknown): value is DaemonRequestMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as { type?: unknown; port?: unknown; path?: unknown };
+  return (
+    v.type === "daemon_request" &&
+    typeof v.port === "number" &&
+    typeof v.path === "string" &&
+    v.path.startsWith("/")
+  );
 }
 
 function isGetPortMessage(value: unknown): value is GetPortMessage {

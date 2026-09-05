@@ -27,6 +27,7 @@ import { fillReplyComposer } from "./fill-reply.js";
 import { unmountDock } from "./dock.js";
 import { showToast } from "./toast.js";
 import { parseTweetId } from "./parse-tweet-url.js";
+import { daemonRequest } from "./daemon-proxy.js";
 
 export type DockAction =
   | "fill"
@@ -106,14 +107,14 @@ async function postAction(
   action: "filled" | "dismissed" | "regen_requested",
 ): Promise<void> {
   try {
-    const res = await fetch(
-      `http://127.0.0.1:${port}/candidates/${encodeURIComponent(tweetId)}/action`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action }),
-      },
+    // Proxied through the background worker (content scripts cannot reach
+    // 127.0.0.1 directly from the x.com page origin).
+    const res = await daemonRequest(
+      port,
+      `/candidates/${encodeURIComponent(tweetId)}/action`,
+      { method: "POST", body: { action } },
     );
+    if (res.error !== undefined) throw new Error(res.error);
     if (!res.ok) {
       console.info(
         `${ACTIONS_LOG_PREFIX} action POST (${action}) returned ${res.status} for ${tweetId}`,

@@ -18,6 +18,12 @@ export interface ScoredDraft {
   kb_files: string[];
   suggested_reply: string;
   ai_tell_flags: string[];
+  move?: string;
+  depth?: string;
+  posture?: string;
+  lane?: "expertise" | "conversational";
+  line_type?: string;
+  energy?: string;
 }
 
 export function candidateId(tweetId: string): string {
@@ -30,7 +36,20 @@ export function formatMatchReason(s: {
   expertise_score: number;
   contribution_score: number;
   contribution_angle: string;
+  lane?: "expertise" | "conversational";
+  line_type?: string;
+  energy?: string;
 }): string {
+  if (s.lane === "conversational") {
+    return [
+      "Lane: conversational",
+      `Theme: ${s.theme} (${Math.round(s.theme_score)})`,
+      `Line: ${Math.round(s.contribution_score)}`,
+      `Type: ${s.line_type ?? "?"}`,
+      `Energy: ${s.energy ?? "?"}`,
+      `Angle: ${s.contribution_angle.trim()}`,
+    ].join(" | ");
+  }
   return [
     `Theme: ${s.theme} (${Math.round(s.theme_score)})`,
     `Expertise: ${Math.round(s.expertise_score)}`,
@@ -46,7 +65,7 @@ export function parseAngleFromMatchReason(reason: string): string | null {
 }
 
 export function toWingmanCandidate(s: ScoredDraft): CandidateInput {
-  const kbRefs = Array.from(new Set([...s.kb_files, "tone.md"]));
+  const kbRefs = Array.from(new Set([...s.kb_files, ...(s.lane === "conversational" ? ["conversational.md"] : []), "tone.md"]));
   const input: CandidateInput = {
     id: candidateId(s.post.tweet_id),
     tweet_id: s.post.tweet_id,

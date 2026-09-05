@@ -17,6 +17,8 @@ import { openProcessedStore, createMemoryProcessedStore, type ProcessedStore } f
 import { loadScanState, type ScanState } from "../state/scan-state.js";
 import { createLogger, type Logger } from "../util/logger.js";
 import { loadWatchlist, type WatchAccount } from "../watchlist.js";
+import { loadConversationalPolicy } from "../kb/conversational.js";
+import { resolveWingmanXStateDir } from "../paths.js";
 
 /** Shared wiring for the bin entrypoints. */
 export interface Runtime {
@@ -26,6 +28,8 @@ export interface Runtime {
   kb: KBIndex;
   llm: LLMProvider;
   themes: string[];
+  /** Conversational-lane reply policy text (kb/conversational.md, or the built-in default). */
+  policy: string;
   watchlist: WatchAccount[];
   processed: ProcessedStore;
   candidateLog: CandidateLog;
@@ -42,10 +46,11 @@ export interface CliFlags {
   since?: string;
   noRegen: boolean;
   regenOnly: boolean;
+  force: boolean;
 }
 
 export function parseFlags(argv: string[]): CliFlags {
-  const flags: CliFlags = { dryRun: false, reprocess: false, verbose: false, noRegen: false, regenOnly: false };
+  const flags: CliFlags = { dryRun: false, reprocess: false, verbose: false, noRegen: false, regenOnly: false, force: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i]!;
     const next = (): string => {
@@ -59,6 +64,7 @@ export function parseFlags(argv: string[]): CliFlags {
     else if (a === "--verbose" || a === "-v") flags.verbose = true;
     else if (a === "--no-regen") flags.noRegen = true;
     else if (a === "--regen-only") flags.regenOnly = true;
+    else if (a === "--force") flags.force = true;
     else if (a === "--fixture") flags.fixture = next();
     else if (a.startsWith("--fixture=")) flags.fixture = a.slice("--fixture=".length);
     else if (a === "--handles") flags.handles = next().split(",").map((h) => h.trim().replace(/^@/, "")).filter(Boolean);
@@ -85,6 +91,7 @@ export const HELP = `Usage: npm run scan -- [flags]
   --reprocess         ignore the processed store (re-run already-seen posts)
   --no-regen          skip serving Wingman regeneration requests
   --regen-only        only serve regeneration requests, no scan
+  --force             (regen) redraft ♻️ candidates even if their last click was already served
   --verbose, -v       per-post debug lines
 `;
 
@@ -110,6 +117,7 @@ export async function buildRuntime(flags: CliFlags, options: { needWatchlist: bo
   }
   const llm = createLLMProvider(config, process.env, (l) => log.debug(l));
   const themes = loadThemes(paths.themes);
+  const policy = loadConversationalPolicy(resolveWingmanXStateDir());
   const watchlist = options.needWatchlist ? await loadWatchlist(paths.watchlist) : [];
   const processed = flags.dryRun ? createMemoryProcessedStore() : openProcessedStore(paths.processed);
   // Dry runs still need to know what was already processed for "seen".
@@ -119,7 +127,7 @@ export async function buildRuntime(flags: CliFlags, options: { needWatchlist: bo
 
   const models = llm.describeModels();
   log.info(
-    `KB: ${kb.files.length} library file(s), ${kb.chunks.length} excerpt(s) · LLM: ${llm.name} (cheap=${models.cheap}, strong=${models.strong}, draft=${models.draft}) · themes: ${themes.length}`,
+    `KB: ${kb.files.length} library file(s), ${kb.chunks.length} excerpt(s) · LLM: ${llm.name} (cheap=${models.cheap}, strong=${models.strong}, draft=${models.draft}) · themes: ${themes.length} · conversational policy: ${policy.source}`,
   );
 
   return {
@@ -129,6 +137,7 @@ export async function buildRuntime(flags: CliFlags, options: { needWatchlist: bo
     kb,
     llm,
     themes,
+    policy: policy.text,
     watchlist,
     processed: flags.dryRun ? withReadOnlySeen(processed, processedForSeen) : processed,
     candidateLog,
@@ -194,8 +203,13 @@ export function printCandidates(log: Logger, summary: ScanSummary): void {
   log.info("Candidates:");
   summary.candidates.forEach((c, i) => {
     log.info(`${i + 1}. @${c.author_handle} — ${c.tweet_url}`);
-    log.info(`   theme ${c.theme} (${c.theme_score}) · expertise ${c.expertise_score} · contribution ${c.contribution_score}`);
-    log.info(`   angle: ${c.contribution_angle}`);
+    if (c.lane === "conversational") {
+      log.info(`   conversational lane · theme ${c.theme} (${c.theme_score}) · line ${c.contribution_score} · ${c.move ?? "?"} · energy ${c.posture ?? "?"}`);
+      log.info(`   line: ${c.contribution_angle}`);
+    } else {
+      log.info(`   theme ${c.theme} (${c.theme_score}) · expertise ${c.expertise_score} · contribution ${c.contribution_score}`);
+      log.info(`   angle: ${c.contribution_angle}`);
+    }
     log.info(`   reply: ${c.suggested_reply}${c.ai_tell_flags.length ? `  [ai-tell: ${c.ai_tell_flags.join(", ")}]` : ""}`);
   });
 }

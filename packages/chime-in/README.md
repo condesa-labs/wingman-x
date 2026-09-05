@@ -52,7 +52,24 @@ npm run scan -- --reprocess          # ignore the processed log
 npm run scan -- --fixture dump.json  # scan a saved Apify dump instead of calling Apify
 npm run regen                        # only serve ♻️ regeneration requests
 npm run apify:probe -- --handles a,b --max 10   # one small actor run; saves the raw dump
+npm run kb:sync-substack             # save new Substack essays to kb/sources/substack/ (memory, not retrieved)
+npm run kb:sync-x -- --handle you    # save an account's X history to kb/sources/x/ (source material for tone.md)
 ```
+
+### Knowledge base layout
+
+```text
+~/.wingman-x/kb/
+  tone.md            canonical reply voice: behaviors, register, avoid-list, do-not-reply-when, calibration examples
+  library/*.md       claim-first topic files (what I believe / differentiated view / why / first-hand / reply angles / boundaries / time-sensitive refs)
+  library/boundaries.md   hard constraints; excluded from retrieval, injected into contribution + draft prompts
+  sources/           full essays and X history used to write the above; never read at scan time
+```
+
+Wingman's adapter reads only `tone.md` and `library/*.md`, so `sources/` is free
+recalibration material. Voice comes from X history (replies teach conversational
+phrasing; quote posts teach reaction). Beliefs come from essays and experience.
+Keep them separate: a reply is one move, not a miniature essay.
 
 Every scan prints a funnel summary and writes a full JSON report to
 `~/.wingman-x/chime-in/scans/`, including every filtered post with its
@@ -77,7 +94,10 @@ Starting scan
 
 Pressing ♻️ in the extension sets the candidate's status to
 `regen_requested`. Nothing in Wingman consumes that; every `npm run scan`
-(and `npm run regen`) does: it redrafts with the original post, the
+(and `npm run regen`) does. The scan pre-drafts `DRAFT_VARIANTS` shapes of
+each reply (same move, different construction) and stores the unshown ones
+in `candidates.jsonl`; the first ♻️ clicks serve those instantly. Once they
+are used up, regen redrafts with the original post, the
 prior reply, the same KB excerpts, the tone guide, and the contribution
 angle, instructing the model to produce a meaningfully different reply,
 then re-POSTs. The daemon's merge keeps the candidate's status, so we
@@ -97,7 +117,12 @@ that matter most:
 | `INCLUDE_REPLIES` / `INCLUDE_REPOSTS` | false | |
 | `SCAN_LOOKBACK_HOURS` | 36 | first scan / fallback window |
 | `THEME_THRESHOLD` / `EXPERTISE_THRESHOLD` / `CONTRIBUTION_THRESHOLD` | 60 / 70 / 70 | gates, 0–100 |
-| `MAX_CANDIDATES_PER_SCAN` | 6 | hard cap after ranking |
+| `MAX_CANDIDATES_PER_SCAN` | 0 (no cap) | optional ceiling on drafted expertise candidates; by default everything above the thresholds is drafted and you decide in the Dock |
+| `DRAFT_VARIANTS` | 1 | drafts per candidate; set 2–5 to pre-draft alternates that ♻️ serves with no model call |
+| `CONVERSATIONAL_THEMES` | Technology and startups, General and internet culture | themes routed to the conversational lane: no KB, a "good line" gate, `kb/conversational.md` as policy |
+| `CONVERSATIONAL_STRICT_THEMES` | General and internet culture | conversational themes where priority-2 accounts need +10 on the bar; priority 3 never enters the lane |
+| `CONVERSATIONAL_THRESHOLD` | 80 | line gate, 0–100 |
+| `MAX_CONVERSATIONAL_CANDIDATES` | 10 | cap on conversational-lane candidates per scan; 0 = no cap |
 | `LLM_PROVIDER` | `auto` | `claude-cli`, `codex-cli`, `anthropic` |
 | `LLM_MODEL_CHEAP` / `STRONG` / `DRAFT` | provider defaults | per-tier model override |
 

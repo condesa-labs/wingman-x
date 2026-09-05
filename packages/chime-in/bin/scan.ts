@@ -39,15 +39,19 @@ async function main(): Promise<number> {
       config: rt.config,
       llm: rt.llm,
       kb: rt.kb,
+      policy: rt.policy,
       candidateLog: rt.candidateLog,
       state: rt.state,
       getCandidates: () => client.getCandidates(),
       postCandidates: (cs) => client.postCandidates(cs),
       log: rt.log,
+      force: flags.force,
     });
     if (regen.requested > 0) {
       saveScanState(rt.paths.state, rt.state);
-      rt.log.info(`Regenerated ${regen.regenerated}/${regen.requested} (failed ${regen.failed})`);
+      rt.log.info(
+        `Regenerated ${regen.regenerated}/${regen.requested} (failed ${regen.failed})${regen.already_served > 0 ? `, ${regen.already_served} already served` : ""}`,
+      );
     }
   }
   if (flags.regenOnly) return 0;
@@ -66,6 +70,7 @@ async function main(): Promise<number> {
       source,
       llm: rt.llm,
       kb: rt.kb,
+      policy: rt.policy,
       themes: rt.themes,
       processed: rt.processed,
       candidateLog: rt.candidateLog,

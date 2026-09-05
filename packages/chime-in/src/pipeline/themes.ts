@@ -1,27 +1,17 @@
 import { existsSync, readFileSync } from "node:fs";
 
-/** Initial themes from the product spec. Override with `<chimeDir>/themes.txt`, one per line. */
+/** Default themes: broad lanes, not sub-topics. A narrow list makes the classifier fuss over labels; a broad one lets the response stage do the thinking. Override with `<chimeDir>/themes.txt`, one per line. */
 export const DEFAULT_THEMES: readonly string[] = [
-  "Tokenization",
-  "Real world assets",
-  "Institutional crypto",
-  "Stablecoins",
-  "Private credit",
+  "Tokenization and market structure",
+  "Credit and collateral",
   "Credit card receivables",
-  "Asset backed finance",
-  "Fund finance",
-  "NAV lending",
-  "DeFi lending",
-  "Collateral management",
-  "Custody",
-  "Securities infrastructure",
-  "Transfer agency",
-  "Settlement",
-  "Onchain capital markets",
-  "Tokenized equities",
-  "Market structure",
-  "Fintech",
-  "AI in financial services",
+  "Stablecoins",
+  "DeFi market structure",
+  "AI in financial workflows",
+  "Payments and fintech",
+  "Regulation and policy",
+  "Technology and startups",
+  "General and internet culture",
 ];
 
 export function parseThemes(text: string): string[] {

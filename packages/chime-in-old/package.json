@@ -1,0 +1,33 @@
+{
+  "name": "@wingman-x/chime-in",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Chime In — X expertise reply assistant. Apify ingestion → theme / expertise / contribution scoring → KB-grounded drafts → Wingman-X candidates.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "scan": "tsx bin/scan.ts",
+    "regen": "tsx bin/regen.ts",
+    "kb:init": "tsx bin/kb-init.ts",
+    "apify:probe": "tsx bin/apify-probe.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --coverage",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "kb:sync-substack": "tsx bin/kb-sync-substack.ts",
+    "kb:sync-x": "tsx bin/kb-sync-x.ts"
+  },
+  "dependencies": {
+    "@wingman-x/agent-kit": "*",
+    "@wingman-x/kb-contract": "*",
+    "apify-client": "^2.25.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^2.1.8",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

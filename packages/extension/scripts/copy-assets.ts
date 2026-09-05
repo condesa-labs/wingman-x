@@ -121,6 +121,7 @@ function listJsFiles(dir: string): string[] {
  */
 const CONTENT_BUNDLE_ORDER: readonly string[] = [
   "../daemon-shape.js", // shared shape guards used by content-script.ts
+  "daemon-proxy.js", // background-proxied daemon fetch (content scripts cannot reach 127.0.0.1 directly)
   "parse-tweet-url.js",
   "position-store.js",
   "drag.js",

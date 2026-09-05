@@ -25,7 +25,11 @@ export interface KBChunk {
 }
 
 /** Library files that are constraints rather than knowledge. Always injected into drafting and contribution prompts, excluded from retrieval. */
-export const CONSTRAINT_FILES: readonly string[] = ["library/boundaries.md"];
+export const CONSTRAINT_FILES: readonly string[] = [
+  "library/identity_and_boundaries.md",
+  "library/identity-and-boundaries.md",
+  "library/boundaries.md",
+];
 
 export interface KBIndex {
   tone: string;
@@ -75,6 +79,7 @@ export function slugifyHeading(h: string): string {
 }
 
 const MAX_CHUNK_CHARS = 1600;
+export const NON_RETRIEVABLE_HEADING_RE = /reply angles|relevance cues/i;
 
 /** Split one markdown document into heading-delimited chunks. */
 export function chunkMarkdown(doc: KBDoc): KBChunk[] {
@@ -99,6 +104,10 @@ export function chunkMarkdown(doc: KBDoc): KBChunk[] {
   const chunks: KBChunk[] = [];
   const usedSlugs = new Map<string, number>();
   for (const section of sections) {
+    // "Good reply angles" / "Relevance cues" sections are recognition
+    // notes for humans maintaining the KB. Retrieving them teaches the
+    // drafter to treat them as a menu of moves, so they are excluded.
+    if (NON_RETRIEVABLE_HEADING_RE.test(section.heading)) continue;
     const text = section.body.join("\n").trim();
     if (!text) continue;
     const baseSlug = slugifyHeading(section.heading);
