@@ -11,7 +11,8 @@
     "packages/agent-kit",
     "packages/daemon",
     "packages/extension",
-    "packages/sample-kb"
+    "packages/sample-kb",
+    "packages/chime-in"
   ],
   "engines": {
     "node": ">=20"
@@ -25,7 +26,13 @@
     "bump:minor": "node scripts/bump-version.mjs minor",
     "bump:major": "node scripts/bump-version.mjs major",
     "bump:sync": "node scripts/bump-version.mjs sync",
-    "launch-chrome": "bash scripts/launch-chrome.sh"
+    "launch-chrome": "bash scripts/launch-chrome.sh",
+    "scan": "npm --workspace @wingman-x/chime-in run scan --",
+    "regen": "npm --workspace @wingman-x/chime-in run regen --",
+    "kb:init": "npm --workspace @wingman-x/chime-in run kb:init --",
+    "apify:probe": "npm --workspace @wingman-x/chime-in run apify:probe --",
+    "kb:sync-substack": "npm --workspace @wingman-x/chime-in run kb:sync-substack --",
+    "kb:sync-x": "npm --workspace @wingman-x/chime-in run kb:sync-x --"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

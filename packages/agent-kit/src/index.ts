@@ -39,3 +39,4 @@ export {
   type KBLoader,
   type KBLoaderOptions,
 } from "./kb-loader.js";
+export { detectAiTells, AI_TELL_PATTERNS } from "./watcher-core.js";

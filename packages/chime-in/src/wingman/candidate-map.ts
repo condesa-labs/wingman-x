@@ -1,0 +1,66 @@
+import { CandidateInputSchema, type CandidateInput } from "@wingman-x/agent-kit";
+import type { NormalizedPost } from "../model/post.js";
+
+/**
+ * Map a scored, drafted post onto Wingman's existing `CandidateInput`
+ * without touching its schema. Reasoning goes into `match_reason`; KB
+ * files into `kb_refs`; priority-1 accounts become `selected` so the
+ * popup pill distinguishes them.
+ */
+export interface ScoredDraft {
+  post: NormalizedPost;
+  theme: string;
+  theme_score: number;
+  expertise_score: number;
+  contribution_score: number;
+  contribution_angle: string;
+  account_priority: 1 | 2 | 3;
+  kb_files: string[];
+  suggested_reply: string;
+  ai_tell_flags: string[];
+}
+
+export function candidateId(tweetId: string): string {
+  return `chime-${tweetId}`;
+}
+
+export function formatMatchReason(s: {
+  theme: string;
+  theme_score: number;
+  expertise_score: number;
+  contribution_score: number;
+  contribution_angle: string;
+}): string {
+  return [
+    `Theme: ${s.theme} (${Math.round(s.theme_score)})`,
+    `Expertise: ${Math.round(s.expertise_score)}`,
+    `Contribution: ${Math.round(s.contribution_score)}`,
+    `Angle: ${s.contribution_angle.trim()}`,
+  ].join(" | ");
+}
+
+/** Parse the angle back out of a stored match_reason (for regen without a log). */
+export function parseAngleFromMatchReason(reason: string): string | null {
+  const m = /Angle:\s*(.+)$/s.exec(reason);
+  return m?.[1]?.trim() || null;
+}
+
+export function toWingmanCandidate(s: ScoredDraft): CandidateInput {
+  const kbRefs = Array.from(new Set([...s.kb_files, "tone.md"]));
+  const input: CandidateInput = {
+    id: candidateId(s.post.tweet_id),
+    tweet_id: s.post.tweet_id,
+    tweet_url: s.post.tweet_url,
+    author_handle: `@${s.post.author_handle}`,
+    tweet_text: s.post.tweet_text,
+    suggested_reply: s.suggested_reply,
+    match_reason: formatMatchReason(s),
+    match_category: s.account_priority === 1 ? "selected" : "topic",
+    source: "handles",
+    kb_refs: kbRefs,
+    ...(s.ai_tell_flags.length > 0 ? { ai_tell_flags: s.ai_tell_flags } : {}),
+  };
+  // Validate against Wingman's own schema so a 400 from the daemon is
+  // impossible to reach — mapping bugs fail here, loudly.
+  return CandidateInputSchema.parse(input);
+}

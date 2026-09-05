@@ -1,0 +1,7 @@
+# Chime In watchlist. Only `handle` is required.
+# priority: 1 = important, 2 = normal (default), 3 = peripheral
+# category and notes are free text.
+handle,priority,category,notes
+example_handle_one,1,Institutional Crypto,replace me
+example_handle_two,2,Private Credit,replace me
+example_handle_three,3,Fintech,replace me

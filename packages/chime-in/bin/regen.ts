@@ -1,0 +1,30 @@
+#!/usr/bin/env tsx
+/** `npm run regen` — serve pending ♻️ requests only. Equivalent to `scan --regen-only`. */
+import "../../../scripts/load-env.mjs";
+import { runRegen } from "../src/pipeline/regen.js";
+import { saveScanState } from "../src/state/scan-state.js";
+import { connectDaemon } from "../src/wingman/daemon.js";
+import { buildRuntime, parseFlags } from "../src/cli/bootstrap.js";
+
+async function main(): Promise<void> {
+  const flags = parseFlags(process.argv.slice(2));
+  const rt = await buildRuntime({ ...flags, dryRun: false }, { needWatchlist: false });
+  const daemon = await connectDaemon(rt.config.daemonPort);
+  const regen = await runRegen({
+    config: rt.config,
+    llm: rt.llm,
+    kb: rt.kb,
+    candidateLog: rt.candidateLog,
+    state: rt.state,
+    getCandidates: () => daemon.client.getCandidates(),
+    postCandidates: (cs) => daemon.client.postCandidates(cs),
+    log: rt.log,
+  });
+  saveScanState(rt.paths.state, rt.state);
+  rt.log.info(`Regenerated ${regen.regenerated}/${regen.requested} (failed ${regen.failed})`);
+}
+
+main().catch((err: unknown) => {
+  process.stderr.write(`regen failed: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.exit(1);
+});
