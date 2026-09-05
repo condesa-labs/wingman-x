@@ -17,6 +17,7 @@ import {
   printCandidates,
   writeScanReport,
 } from "../src/cli/bootstrap.js";
+import { isWatcherRunning, spawnWatcherDetached } from "../src/cli/watcher-process.js";
 
 async function main(): Promise<number> {
   const flags = parseFlags(process.argv.slice(2));
@@ -96,6 +97,19 @@ async function main(): Promise<number> {
     `LLM: ${summary.llm.calls} call(s), ${summary.llm.failures} failure(s), ~$${summary.llm.cost_usd.toFixed(3)}, ${Math.round(summary.llm.elapsed_ms / 1000)}s model time`,
   );
   rt.log.info(`Report: ${report}`);
+
+  // Make sure ♻️ clicks get served without a second terminal: if no watcher
+  // is running, start one in the background (regen only, no scheduled
+  // scans). Skip with --no-watch.
+  if (!flags.dryRun && !process.argv.includes("--no-watch")) {
+    const running = isWatcherRunning(rt.paths);
+    if (running === null) {
+      const pid = spawnWatcherDetached(rt.paths);
+      rt.log.info(`Watcher started in the background (pid ${pid}) to serve ♻️ clicks · log: ${rt.paths.watchLog} · stop: npm run watch:stop`);
+    } else {
+      rt.log.info(`Watcher already running (pid ${running}); ♻️ clicks are being served.`);
+    }
+  }
   return 0;
 }
 

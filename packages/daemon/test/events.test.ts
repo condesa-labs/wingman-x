@@ -26,6 +26,16 @@ describe("EventBus", () => {
     expect(bus.count()).toBe(2);
   });
 
+  it("serialises candidate_updated frames", () => {
+    const bus = new EventBus();
+    const got: string[] = [];
+    bus.subscribe((f) => got.push(f));
+    bus.publish({ type: "candidate_updated", id: "chime-1", tweet_id: "1", status: "regen_requested", reason: "action" });
+    expect(got[0]).toBe(
+      'data: {"type":"candidate_updated","id":"chime-1","tweet_id":"1","status":"regen_requested","reason":"action"}\n\n',
+    );
+  });
+
   it("stops delivering to an unsubscribed callback", () => {
     const bus = new EventBus();
     const received: string[] = [];

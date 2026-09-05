@@ -48,6 +48,8 @@ export interface RegenDeps {
   now?: () => Date;
   /** Redraft even if the current ♻️ click was already served. */
   force?: boolean;
+  /** Watch mode sweeps every minute; do not repeat the "already served" notice each time. */
+  quietServed?: boolean;
 }
 
 export interface RegenSummary {
@@ -125,7 +127,7 @@ export async function runRegen(deps: RegenDeps): Promise<RegenSummary> {
   };
   if (summary.fills_recorded > 0) deps.log.info(`recorded ${summary.fills_recorded} filled reply(ies) to the candidate log`);
   if (pending.length === 0) {
-    if (served.length > 0) {
+    if (served.length > 0 && !deps.quietServed) {
       deps.log.info(
         `${served.length} candidate(s) still marked ♻️ but their last click was already served. Press ♻️ again in the extension, or run with --force to redraft anyway.`,
       );

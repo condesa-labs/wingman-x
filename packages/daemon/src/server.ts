@@ -222,6 +222,8 @@ export async function buildServer(
       author_handle: string;
       match_category: "selected" | "topic" | "trending" | "explore";
     }> = [];
+    // Existing candidates whose reply text changed (a redraft / regen).
+    const redrafted: Array<{ id: string; tweet_id: string; status: string }> = [];
     for (const input of parsed.data.candidates) {
       const existing = state.candidates[input.tweet_id];
       const merged = mergeCandidate(existing, input, now);
@@ -233,6 +235,8 @@ export async function buildServer(
           author_handle: merged.author_handle,
           match_category: merged.match_category,
         });
+      } else if (existing.suggested_reply !== merged.suggested_reply) {
+        redrafted.push({ id: merged.id, tweet_id: merged.tweet_id, status: merged.status });
       }
     }
 
@@ -252,6 +256,9 @@ export async function buildServer(
         author_handle: nc.author_handle,
         match_category: nc.match_category,
       });
+    }
+    for (const rd of redrafted) {
+      events.publish({ type: "candidate_updated", id: rd.id, tweet_id: rd.tweet_id, status: rd.status, reason: "redraft" });
     }
 
     return { stored };
@@ -398,6 +405,10 @@ export async function buildServer(
         req.log?.error({ err }, "failed to persist state");
         return reply.code(500).send({ error: "persistence_failure" });
       }
+
+      // After persist, like candidate_added: a watcher can act on
+      // regen_requested immediately, and the extension can refresh.
+      events.publish({ type: "candidate_updated", id, tweet_id: updated.tweet_id, status: nextStatus, reason: "action" });
 
       return updated;
     },

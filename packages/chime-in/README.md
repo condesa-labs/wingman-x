@@ -51,6 +51,8 @@ npm run scan -- --since 12h          # override the lookback
 npm run scan -- --reprocess          # ignore the processed log
 npm run scan -- --fixture dump.json  # scan a saved Apify dump instead of calling Apify
 npm run regen                        # only serve ♻️ regeneration requests
+npm run watch                        # foreground watcher: serve ♻️ clicks within seconds (add --scan-every 30m to also scan)
+npm run watch:stop                   # stop the background watcher that `npm run scan` starts
 npm run apify:probe -- --handles a,b --max 10   # one small actor run; saves the raw dump
 npm run kb:sync-substack             # save new Substack essays to kb/sources/substack/ (memory, not retrieved)
 npm run kb:sync-x -- --handle you    # save an account's X history to kb/sources/x/ (source material for tone.md)
@@ -91,6 +93,20 @@ Starting scan
 ```
 
 ## Regeneration
+
+### Watch mode
+
+`npm run watch` is the always-on mode. It subscribes to the daemon's event
+stream and runs a regen within seconds of a ♻️ click (the daemon publishes
+`candidate_updated` on every status change and redraft). You rarely need to
+start it yourself: `npm run scan` starts a background watcher if none is
+running (pid in `watch.pid`, output in `watch.log`; `--no-watch` to skip;
+`npm run watch:stop` to end it). Scans stay manual
+unless you pass `--scan-every 30m` (first scan at start) or `--scan-now`.
+Regens and scans run in separate lanes, so a click is never stuck behind a scan.
+The extension's background worker relays the same events to the popup and to
+open x.com tabs, so a regenerated reply or a new card appears in place without
+a reload. Stop with Ctrl+C; register it with launchd if you want it at login.
 
 Pressing ♻️ in the extension sets the candidate's status to
 `regen_requested`. Nothing in Wingman consumes that; every `npm run scan`

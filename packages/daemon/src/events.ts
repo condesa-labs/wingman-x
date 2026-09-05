@@ -34,10 +34,24 @@ export interface SignalAddedEvent {
 }
 
 /**
+ * Broadcast when an existing candidate changes: the extension moved its
+ * status (filled / dismissed / regen_requested) or an agent re-POSTed it
+ * with a new suggested_reply. Lets an agent watcher serve ♻️ clicks the
+ * moment they happen, and lets the extension refresh a card in place.
+ */
+export interface CandidateUpdatedEvent {
+  type: "candidate_updated";
+  id: string;
+  tweet_id: string;
+  status: string;
+  reason: "action" | "redraft";
+}
+
+/**
  * Extensible union — new event types should be added here and both
  * publish/subscribe sides kept in sync.
  */
-export type DaemonEvent = CandidateAddedEvent | SignalAddedEvent;
+export type DaemonEvent = CandidateAddedEvent | SignalAddedEvent | CandidateUpdatedEvent;
 
 export type EventSubscriber = (sseFrame: string) => void;
 

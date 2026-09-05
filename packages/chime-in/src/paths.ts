@@ -20,6 +20,8 @@ export function chimePaths(chimeDir: string): {
   candidates: string;
   scansDir: string;
   themes: string;
+  watchPid: string;
+  watchLog: string;
 } {
   return {
     watchlist: join(chimeDir, "watchlist.csv"),
@@ -28,5 +30,7 @@ export function chimePaths(chimeDir: string): {
     candidates: join(chimeDir, "candidates.jsonl"),
     scansDir: join(chimeDir, "scans"),
     themes: join(chimeDir, "themes.txt"),
+    watchPid: join(chimeDir, "watch.pid"),
+    watchLog: join(chimeDir, "watch.log"),
   };
 }

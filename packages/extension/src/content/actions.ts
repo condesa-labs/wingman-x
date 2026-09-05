@@ -189,10 +189,25 @@ export async function handleAction(
       if (ctx.port !== null) {
         void postAction(ctx.port, ctx.tweetId, "regen_requested");
       }
-      showToast(
-        "Regen requested — run your agent again to pick it up",
-        2_500,
-      );
+      // Visible pending state. The watcher drafts the new reply and
+      // re-POSTs it; the daemon's candidate_updated event then remounts
+      // the widget with the new text (see content-script live refresh).
+      const preview = document.querySelector<HTMLElement>('[data-testid="twh-card-reply-preview"]');
+      if (preview !== null) {
+        const previous = preview.textContent ?? "";
+        preview.textContent = "Regenerating… (about 20s)";
+        preview.classList.add("twh-regenerating");
+        // If nothing picks the click up (watcher not running), do not leave
+        // the card stuck: restore the old text and say what is missing.
+        setTimeout(() => {
+          if (preview.isConnected && preview.classList.contains("twh-regenerating")) {
+            preview.textContent = previous;
+            preview.classList.remove("twh-regenerating");
+            showToast("Regen is still pending: start the watcher (npm run watch) to serve it", 8_000);
+          }
+        }, 90_000);
+      }
+      showToast("Regenerating… the new draft replaces the card text in about 20 seconds", 6_000);
       return;
     }
     case "quote":

@@ -272,6 +272,41 @@ function handleDismiss(
  * the fetch again exactly once. If the second attempt also fails, we
  * drop to the error state — the retry button re-runs this whole flow.
  */
+/**
+ * Live refresh while the popup is open: the background relays daemon
+ * candidate events as runtime messages; re-fetch and re-render in place
+ * (no loading flash). Debounced: a scan can land several cards at once.
+ */
+let popupRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function refreshInPlace(): Promise<void> {
+  const port = currentPort ?? (await getPortFromWorker());
+  if (port === null) return;
+  const { port: usedPort, candidates } = await fetchWithStaleRecovery(port);
+  if (usedPort === null || candidates === null) return;
+  currentPort = usedPort;
+  const container = document.querySelector<HTMLElement>("[data-testid='twh-popup-cards']");
+  if (!container) return;
+  const rendered = renderList(usedPort, candidates, container);
+  setState(rendered ? "list" : "empty");
+}
+
+function installPopupLiveRefresh(): void {
+  try {
+    chrome.runtime.onMessage.addListener((message: unknown) => {
+      if (typeof message !== "object" || message === null) return;
+      if ((message as { type?: unknown }).type !== "daemon_event") return;
+      if (popupRefreshTimer !== null) clearTimeout(popupRefreshTimer);
+      popupRefreshTimer = setTimeout(() => {
+        popupRefreshTimer = null;
+        void refreshInPlace();
+      }, 500);
+    });
+  } catch {
+    // no-op outside an extension page
+  }
+}
+
 async function runFlow(): Promise<void> {
   setState("loading");
   setPortFooter(null);
@@ -444,3 +479,6 @@ document.addEventListener("DOMContentLoaded", () => {
   wireRequestDiscovery();
   void runFlow();
 });
+
+// Live refresh while the popup is open.
+installPopupLiveRefresh();

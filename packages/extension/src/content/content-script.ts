@@ -349,6 +349,43 @@ async function tryFetchSuggestion(
  * content script's initial `runOnce()` would otherwise be the only
  * invocation for the whole tab lifetime.
  */
+/**
+ * Live refresh. The background worker relays daemon events (candidate
+ * added / updated) to every x.com tab. When one concerns the tweet on
+ * screen, re-run the route: the widget remounts with the fresh payload,
+ * so a regenerated reply or a newly drafted card appears without a page
+ * reload. Debounced because a redraft can arrive as two events.
+ */
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+function refreshCurrentRoute(): void {
+  const tweetId = parseTweetId(readPageUrl());
+  if (tweetId === null) return;
+  // Force runOnce past its same-route short-circuit.
+  disposeCurrentRoute();
+  void runOnce();
+}
+
+function installLiveRefresh(): void {
+  try {
+    chrome.runtime.onMessage.addListener((message: unknown) => {
+      if (typeof message !== "object" || message === null) return;
+      const m = message as { type?: unknown; event?: { tweet_id?: unknown } };
+      if (m.type !== "daemon_event" || typeof m.event?.tweet_id !== "string") return;
+      const onScreen = parseTweetId(readPageUrl());
+      if (onScreen === null || onScreen !== m.event.tweet_id) return;
+      if (refreshTimer !== null) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        console.info(`${LOG_PREFIX} candidate changed for ${onScreen}; refreshing widget`);
+        refreshCurrentRoute();
+      }, 400);
+    });
+  } catch {
+    // chrome.runtime unavailable (detached frame) — live refresh is a nicety.
+  }
+}
+
 function installSoftNavigationHook(): void {
   const fire = (): void => {
     void runOnce();
@@ -415,3 +452,6 @@ function extractCandidateView(payload: unknown): {
 
 installSoftNavigationHook();
 void runOnce();
+
+// Live refresh: relayed daemon events remount the widget for the tweet on screen.
+installLiveRefresh();

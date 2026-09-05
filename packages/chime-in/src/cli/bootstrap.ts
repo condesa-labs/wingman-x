@@ -61,6 +61,9 @@ export function parseFlags(argv: string[]): CliFlags {
     };
     if (a === "--dry-run") flags.dryRun = true;
     else if (a === "--reprocess") flags.reprocess = true;
+    else if (a === "--no-watch") {
+      /* handled in bin/scan.ts: do not auto-start the background watcher */
+    }
     else if (a === "--verbose" || a === "-v") flags.verbose = true;
     else if (a === "--no-regen") flags.noRegen = true;
     else if (a === "--regen-only") flags.regenOnly = true;

@@ -16,7 +16,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "kb:sync-substack": "tsx bin/kb-sync-substack.ts",
     "kb:sync-x": "tsx bin/kb-sync-x.ts",
-    "reply:audit": "tsx bin/reply-audit.ts"
+    "reply:audit": "tsx bin/reply-audit.ts",
+    "watch": "tsx bin/watch.ts",
+    "watch:stop": "tsx bin/watch-stop.ts"
   },
   "dependencies": {
     "@wingman-x/agent-kit": "*",

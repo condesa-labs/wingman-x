@@ -442,6 +442,46 @@ function handleSseFrame(frame: string): void {
   if (isCandidateAdded(payload)) {
     showCandidateNotification(payload);
   }
+  if (isCandidateEvent(payload)) {
+    // Live refresh: the popup (extension page) hears runtime messages; the
+    // content scripts on x.com only hear tabs.sendMessage. Both are
+    // fire-and-forget — no listener is a normal state, not an error.
+    void refreshBadge();
+    broadcastDaemonEvent(payload);
+  }
+}
+
+function isCandidateEvent(value: unknown): value is { type: string; tweet_id: string } {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (v.type === "candidate_added" || v.type === "candidate_updated") && typeof v.tweet_id === "string";
+}
+
+function broadcastDaemonEvent(event: { type: string; tweet_id: string }): void {
+  const message = { type: "daemon_event", event };
+  try {
+    chrome.runtime.sendMessage(message, () => {
+      void chrome.runtime.lastError; // no popup open → "receiving end does not exist"; expected
+    });
+  } catch {
+    // no-op
+  }
+  try {
+    chrome.tabs.query({ url: ["https://x.com/*", "https://twitter.com/*", "http://localhost/*"] }, (tabs) => {
+      for (const tab of tabs) {
+        if (tab.id === undefined) continue;
+        try {
+          chrome.tabs.sendMessage(tab.id, message, () => {
+            void chrome.runtime.lastError; // tab without our content script; expected
+          });
+        } catch {
+          // no-op
+        }
+      }
+    });
+  } catch {
+    // no-op
+  }
 }
 
 function showCandidateNotification(event: CandidateAddedEvent): void {

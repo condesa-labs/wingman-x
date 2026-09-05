@@ -34,9 +34,28 @@ export function loadScanState(path: string): ScanState {
   }
 }
 
-/** Atomic write: tmp + fsync + rename, same discipline as the daemon. */
+/**
+ * Merge our in-memory view with whatever another process saved since we
+ * loaded (the watcher and a manual `npm run scan` both write this file):
+ * regen_handled is a union with the newer click winning; scan timestamps
+ * take the later value. The caller's object is updated in place so its
+ * view stays current too.
+ */
+export function mergeScanState(target: ScanState, other: ScanState): ScanState {
+  for (const [id, at] of Object.entries(other.regen_handled)) {
+    const mine = target.regen_handled[id];
+    if (mine === undefined || at > mine) target.regen_handled[id] = at;
+  }
+  const later = (x?: string, y?: string): string | undefined => (x === undefined ? y : y === undefined ? x : x > y ? x : y);
+  target.last_scan_started_at = later(target.last_scan_started_at, other.last_scan_started_at);
+  target.last_scan_completed_at = later(target.last_scan_completed_at, other.last_scan_completed_at);
+  return target;
+}
+
+/** Atomic write: tmp + fsync + rename, same discipline as the daemon. Merges with the on-disk copy first. */
 export function saveScanState(path: string, state: ScanState): void {
   mkdirSync(dirname(path), { recursive: true });
+  if (existsSync(path)) mergeScanState(state, loadScanState(path));
   const tmp = `${path}.tmp`;
   const fd = openSync(tmp, "w");
   try {
